@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: order-service-config
+  namespace: default
+  labels:
+    app: order-service
+data:
+  environment: "production"
+  redis-url: "redis-service:6379"
+  otel-endpoint: "otel-collector:4317"
+  product-service-url: "http://product-service:8002"
+  
+  # Logging configuration
+  log-level: "info"
+  log-format: "json"
+  
+  # Application configuration
+  max-page-size: "100"
+  default-page-size: "10"
+  cache-ttl: "300"

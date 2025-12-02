@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: payment-configmap
+data:
+  PORT: "8085"
+  DB_NAME: "payment_db"
+  ORDER_SERVICE_URL: "http://order-service:8082"

@@ -1,0 +1,16 @@
+# k8s/django-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: django-service
+  labels:
+    app: django-service
+spec:
+  selector:
+    app: django-service
+  ports:
+  - port: 80
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  type: ClusterIP

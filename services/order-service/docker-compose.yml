@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  order-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      platforms:
+        - linux/amd64
+    container_name: order-service
+    ports:
+      - "8003:8003"
+    environment:
+      - SERVER_PORT=8003
+      - DATABASE_URL=postgres://postgres:postgres@order-postgres:5432/orders?sslmode=disable  # ✅ Container ismi
+      - REDIS_URL=order-redis:6379  # ✅ Container ismi
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
+      - SERVICE_NAME=order-service
+      - ENVIRONMENT=development
+      - PRODUCT_SERVICE_URL=http://django-service:8000  # ✅ Container ismi
+    depends_on:
+      order-postgres:
+        condition: service_healthy
+      order-redis:
+        condition: service_healthy
+    networks:
+      - order-network
+      - django-service_default
+
+  order-postgres:  # ✅ Service ismi değişti
+    image: postgres:15.15
+    platform: linux/amd64
+    container_name: order-postgres
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=orders
+    ports:
+      - "5433:5432"
+    volumes:
+      - order_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d orders"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - order-network
+
+  order-redis:  # ✅ Service ismi değişti
+    image: redis:7.4-alpine
+    platform: linux/amd64
+    container_name: order-redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - order_redis_data:/data
+    command: redis-server --save 60 1 --loglevel warning --ignore-warnings ARM64-COW-BUG
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - order-network
+
+volumes:
+  order_postgres_data:
+  order_redis_data:
+
+networks:
+  order-network:
+    driver: bridge
+  django-service_default:
+    external: true

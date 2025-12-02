@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15.15
+    container_name: django-postgres
+    environment:
+      POSTGRES_DB: products_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - default
+
+  redis:
+    image: redis:7.4-alpine  # Versiyon ekle
+    platform: linux/amd64
+    container_name: django-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --save 60 1 --loglevel warning --ignore-warnings ARM64-COW-BUG
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - default
+
+  django:
+    build: .
+    container_name: django-service
+    ports:
+      - "8000:8000"
+    environment:
+      - SERVICE_NAME=django-service
+      - SERVICE_VERSION=1.0.0
+      - PORT=8000
+      - DEBUG=True
+      - SECRET_KEY=django-insecure-dev-key-12345
+      - ALLOWED_HOSTS=localhost,127.0.0.1,django,django-service
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=products_db
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_SERVICE_NAME=django-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      sh -c "
+        python manage.py migrate &&
+        python manage.py collectstatic --noinput &&
+        gunicorn --bind 0.0.0.0:8000 --workers 2 --threads 4 --reload config.wsgi:application
+      "
+    networks:
+      - default
+
+volumes:
+  postgres_data:
+
+networks:
+  default:
+    name: django-service_default
+    driver: bridge

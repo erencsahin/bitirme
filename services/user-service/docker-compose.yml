@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  user-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: user-service
+    ports:
+      - "8001:8001"
+    environment:
+      NODE_ENV: development
+      PORT: 8001
+      SERVICE_NAME: user-service
+      DATABASE_URL: postgresql://userservice:userpass@postgres-user:5432/users_db
+      REDIS_HOST: redis-user
+      REDIS_PORT: 6379
+      JWT_SECRET: your-super-secret-jwt-key-change-this-in-production
+      JWT_REFRESH_SECRET: your-super-secret-refresh-key-change-this-in-production
+      JWT_EXPIRES_IN: 24h
+      JWT_REFRESH_EXPIRES_IN: 7d
+      LOG_LEVEL: info
+      CORS_ORIGIN: http://localhost:3000
+    depends_on:
+      postgres-user:
+        condition: service_healthy
+      redis-user:
+        condition: service_healthy
+    networks:
+      - user-network
+    restart: unless-stopped
+
+  postgres-user:
+    image: postgres:15.15
+    container_name: postgres-user
+    environment:
+      POSTGRES_USER: userservice
+      POSTGRES_PASSWORD: userpass
+      POSTGRES_DB: users_db
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres-user-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U userservice -d users_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - user-network
+    restart: unless-stopped
+
+  redis-user:
+    image: redis:7.4-alpine
+    container_name: redis-user
+    ports:
+      - "6381:6379"
+    volumes:
+      - redis-user-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - user-network
+    restart: unless-stopped
+
+networks:
+  user-network:
+    driver: bridge
+
+volumes:
+  postgres-user-data:
+  redis-user-data:
