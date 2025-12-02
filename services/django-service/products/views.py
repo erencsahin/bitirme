@@ -1,22 +1,19 @@
 # products/views.py
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
+from rest_framework.response import Response
 from django.core.cache import cache
-from django.db.models import Avg, Count, F
+from django.db.models import Avg, Count
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 import logging
 
-from .models import Product, Category, Inventory
+from .models import Product, Category
 from .serializers import (
     ProductListSerializer,
     ProductDetailSerializer,
     ProductCreateUpdateSerializer,
     CategorySerializer,
-    InventorySerializer,
-    InventoryCreateSerializer,
-    InventoryUpdateSerializer,
-    StockAdjustmentSerializer,
     StockCheckSerializer
 )
 from core.responses import StandardResponse
@@ -127,6 +124,7 @@ class ProductViewSet(viewsets.ModelViewSet):
     - GET    /api/products/statistics/         - Get statistics
     - GET    /api/products/low_stock/          - Get low stock products
     - POST   /api/products/{id}/update_stock/  - Update stock
+    - GET    /api/products/{id}/check_stock/   - Check stock availability
     - GET    /api/products/search/             - Search products
     """
     queryset = Product.objects.select_related('category').prefetch_related('images')
@@ -373,6 +371,49 @@ class ProductViewSet(viewsets.ModelViewSet):
             message=f"Stock updated successfully. New stock: {new_stock}"
         )
     
+    @action(detail=True, methods=['get'])
+    def check_stock(self, request, pk=None):
+        """
+        Check if product has enough stock
+        GET /api/products/{id}/check_stock/?quantity=5
+        """
+        product = self.get_object()
+        
+        quantity_param = request.query_params.get('quantity')
+        if not quantity_param:
+            return Response({
+                'status': 'error',
+                'message': 'quantity parameter is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            quantity = int(quantity_param)
+            if quantity < 1:
+                raise ValueError("Quantity must be greater than 0")
+        except ValueError:
+            return Response({
+                'status': 'error',
+                'message': 'quantity must be a positive integer'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        available = product.check_stock(quantity)
+        
+        logger.info(
+            f"Stock check: Product {product.id}, Requested: {quantity}, Available: {available}",
+            extra={'product_id': product.id, 'quantity': quantity}
+        )
+        
+        return Response({
+            'status': 'success',
+            'data': {
+                'product_id': product.id,
+                'product_name': product.name,
+                'requested_quantity': quantity,
+                'available_stock': product.stock,
+                'is_available': available
+            }
+        })
+    
     @action(detail=False, methods=['get'])
     def search(self, request):
         """Search products (alias for queryset filtering)"""
@@ -384,337 +425,4 @@ class ProductViewSet(viewsets.ModelViewSet):
             return self.get_paginated_response(serializer.data)
         
         serializer = self.get_serializer(queryset, many=True)
-        return StandardResponse.success(data=serializer.data)
-
-
-# ============================================
-# INVENTORY VIEWSET - NEW!
-# ============================================
-
-class InventoryViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet for Inventory management
-    
-    Endpoints:
-    - GET    /api/inventory/                     - List all inventories
-    - GET    /api/inventory/{product_id}/        - Get inventory by product
-    - POST   /api/inventory/                     - Create inventory
-    - PUT    /api/inventory/{product_id}/        - Update inventory
-    - DELETE /api/inventory/{product_id}/        - Delete inventory
-    - POST   /api/inventory/{product_id}/reserve/        - Reserve stock
-    - POST   /api/inventory/{product_id}/release/        - Release reserved stock
-    - POST   /api/inventory/{product_id}/increase/       - Increase stock
-    - POST   /api/inventory/{product_id}/decrease/       - Decrease stock
-    - GET    /api/inventory/{product_id}/check/          - Check availability
-    - GET    /api/inventory/low-stock/                   - Get low stock items
-    """
-    
-    queryset = Inventory.objects.select_related('product').all()
-    pagination_class = StandardPagination
-    lookup_field = 'product_id'
-    lookup_url_kwarg = 'product_id'
-    
-    def get_serializer_class(self):
-        """Use different serializers for different actions"""
-        if self.action == 'create':
-            return InventoryCreateSerializer
-        elif self.action in ['update', 'partial_update']:
-            return InventoryUpdateSerializer
-        return InventorySerializer
-    
-    def list(self, request, *args, **kwargs):
-        """List all inventories"""
-        logger.info("Fetching all inventories")
-        return super().list(request, *args, **kwargs)
-    
-    def retrieve(self, request, *args, **kwargs):
-        """Get inventory by product ID"""
-        try:
-            inventory = self.get_object()
-            serializer = self.get_serializer(inventory)
-            return StandardResponse.success(data=serializer.data)
-        except Inventory.DoesNotExist:
-            return StandardResponse.error(
-                code='NOT_FOUND',
-                message=f'Inventory not found for product {kwargs.get("product_id")}',
-                status_code=status.HTTP_404_NOT_FOUND
-            )
-    
-    def create(self, request, *args, **kwargs):
-        """Create inventory for a product"""
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
-        
-        # Get full inventory data
-        inventory = Inventory.objects.get(product_id=serializer.instance.product_id)
-        output_serializer = InventorySerializer(inventory)
-        
-        logger.info(
-            f"Inventory created for product: {inventory.product_id}",
-            extra={'product_id': inventory.product_id}
-        )
-        
-        return StandardResponse.success(
-            data=output_serializer.data,
-            status_code=status.HTTP_201_CREATED,
-            message="Inventory created successfully"
-        )
-    
-    def update(self, request, *args, **kwargs):
-        """Update inventory"""
-        partial = kwargs.pop('partial', False)
-        instance = self.get_object()
-        serializer = self.get_serializer(instance, data=request.data, partial=partial)
-        serializer.is_valid(raise_exception=True)
-        self.perform_update(serializer)
-        
-        # Clear cache
-        cache_key = f'inventory_product_{instance.product_id}'
-        cache.delete(cache_key)
-        
-        output_serializer = InventorySerializer(instance)
-        
-        logger.info(
-            f"Inventory updated for product: {instance.product_id}",
-            extra={'product_id': instance.product_id}
-        )
-        
-        return StandardResponse.success(
-            data=output_serializer.data,
-            message="Inventory updated successfully"
-        )
-    
-    def destroy(self, request, *args, **kwargs):
-        """Delete inventory"""
-        instance = self.get_object()
-        product_id = instance.product_id
-        instance.delete()
-        
-        # Clear cache
-        cache_key = f'inventory_product_{product_id}'
-        cache.delete(cache_key)
-        
-        logger.info(
-            f"Inventory deleted for product: {product_id}",
-            extra={'product_id': product_id}
-        )
-        
-        return StandardResponse.success(
-            message="Inventory deleted successfully",
-            status_code=status.HTTP_200_OK
-        )
-    
-    @action(detail=True, methods=['post'])
-    def reserve(self, request, product_id=None):
-        """
-        Reserve stock for an order
-        POST /api/inventory/{product_id}/reserve/
-        Body: {"quantity": 5, "reason": "Order #123"}
-        """
-        inventory = self.get_object()
-        serializer = StockAdjustmentSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        
-        quantity = serializer.validated_data['quantity']
-        reason = serializer.validated_data.get('reason', '')
-        
-        try:
-            inventory.reserve(quantity)
-            
-            # Clear cache
-            cache_key = f'inventory_product_{product_id}'
-            cache.delete(cache_key)
-            
-            logger.info(
-                f"Stock reserved: Product {product_id}, Quantity: {quantity}, Reason: {reason}",
-                extra={'product_id': product_id, 'quantity': quantity}
-            )
-            
-            output_serializer = InventorySerializer(inventory)
-            return StandardResponse.success(
-                data=output_serializer.data,
-                message=f"Successfully reserved {quantity} units"
-            )
-        
-        except ValueError as e:
-            return StandardResponse.error(
-                code='INSUFFICIENT_STOCK',
-                message=str(e),
-                status_code=status.HTTP_400_BAD_REQUEST
-            )
-    
-    @action(detail=True, methods=['post'])
-    def release(self, request, product_id=None):
-        """
-        Release reserved stock
-        POST /api/inventory/{product_id}/release/
-        Body: {"quantity": 5, "reason": "Order cancelled"}
-        """
-        inventory = self.get_object()
-        serializer = StockAdjustmentSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        
-        quantity = serializer.validated_data['quantity']
-        reason = serializer.validated_data.get('reason', '')
-        
-        try:
-            inventory.release(quantity)
-            
-            # Clear cache
-            cache_key = f'inventory_product_{product_id}'
-            cache.delete(cache_key)
-            
-            logger.info(
-                f"Stock released: Product {product_id}, Quantity: {quantity}, Reason: {reason}",
-                extra={'product_id': product_id, 'quantity': quantity}
-            )
-            
-            output_serializer = InventorySerializer(inventory)
-            return StandardResponse.success(
-                data=output_serializer.data,
-                message=f"Successfully released {quantity} units"
-            )
-        
-        except ValueError as e:
-            return StandardResponse.error(
-                code='INVALID_OPERATION',
-                message=str(e),
-                status_code=status.HTTP_400_BAD_REQUEST
-            )
-    
-    @action(detail=True, methods=['post'])
-    def increase(self, request, product_id=None):
-        """
-        Increase stock quantity
-        POST /api/inventory/{product_id}/increase/
-        Body: {"quantity": 100, "reason": "Restocking"}
-        """
-        inventory = self.get_object()
-        serializer = StockAdjustmentSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        
-        quantity = serializer.validated_data['quantity']
-        reason = serializer.validated_data.get('reason', '')
-        
-        inventory.increase_stock(quantity)
-        
-        # Clear cache
-        cache_key = f'inventory_product_{product_id}'
-        cache.delete(cache_key)
-        
-        logger.info(
-            f"Stock increased: Product {product_id}, Quantity: +{quantity}, Reason: {reason}",
-            extra={'product_id': product_id, 'quantity': quantity}
-        )
-        
-        output_serializer = InventorySerializer(inventory)
-        return StandardResponse.success(
-            data=output_serializer.data,
-            message=f"Successfully increased stock by {quantity} units"
-        )
-    
-    @action(detail=True, methods=['post'])
-    def decrease(self, request, product_id=None):
-        """
-        Decrease stock quantity
-        POST /api/inventory/{product_id}/decrease/
-        Body: {"quantity": 10, "reason": "Damaged goods"}
-        """
-        inventory = self.get_object()
-        serializer = StockAdjustmentSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        
-        quantity = serializer.validated_data['quantity']
-        reason = serializer.validated_data.get('reason', '')
-        
-        try:
-            inventory.decrease_stock(quantity)
-            
-            # Clear cache
-            cache_key = f'inventory_product_{product_id}'
-            cache.delete(cache_key)
-            
-            logger.info(
-                f"Stock decreased: Product {product_id}, Quantity: -{quantity}, Reason: {reason}",
-                extra={'product_id': product_id, 'quantity': quantity}
-            )
-            
-            output_serializer = InventorySerializer(inventory)
-            return StandardResponse.success(
-                data=output_serializer.data,
-                message=f"Successfully decreased stock by {quantity} units"
-            )
-        
-        except ValueError as e:
-            return StandardResponse.error(
-                code='INSUFFICIENT_STOCK',
-                message=str(e),
-                status_code=status.HTTP_400_BAD_REQUEST
-            )
-    
-    @action(detail=True, methods=['get'])
-    def check(self, request, product_id=None):
-        """
-        Check stock availability
-        GET /api/inventory/{product_id}/check/?quantity=5
-        """
-        inventory = self.get_object()
-        
-        quantity_param = request.query_params.get('quantity')
-        if not quantity_param:
-            return StandardResponse.error(
-                code='MISSING_PARAMETER',
-                message='quantity parameter is required',
-                status_code=status.HTTP_400_BAD_REQUEST
-            )
-        
-        try:
-            quantity = int(quantity_param)
-            if quantity < 1:
-                raise ValueError("Quantity must be greater than 0")
-        except ValueError:
-            return StandardResponse.error(
-                code='INVALID_PARAMETER',
-                message='quantity must be a positive integer',
-                status_code=status.HTTP_400_BAD_REQUEST
-            )
-        
-        available = inventory.check_availability(quantity)
-        
-        logger.info(
-            f"Stock check: Product {product_id}, Requested: {quantity}, Available: {available}",
-            extra={'product_id': product_id, 'quantity': quantity}
-        )
-        
-        return StandardResponse.success(
-            data={
-                'available': available,
-                'requested_quantity': quantity,
-                'available_quantity': inventory.available_quantity,
-                'total_quantity': inventory.quantity,
-                'reserved_quantity': inventory.reserved_quantity
-            }
-        )
-    
-    @action(detail=False, methods=['get'])
-    def low_stock(self, request):
-        """
-        Get products with low stock
-        GET /api/inventory/low-stock/
-        """
-        low_stock_items = self.queryset.filter(
-            quantity__lte=F('min_stock_level'),
-            quantity__gt=0
-        ).order_by('quantity')
-        
-        page = self.paginate_queryset(low_stock_items)
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
-        
-        serializer = self.get_serializer(low_stock_items, many=True)
-        
-        logger.info(f"Low stock items retrieved: {low_stock_items.count()} items")
-        
         return StandardResponse.success(data=serializer.data)

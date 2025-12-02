@@ -1,357 +1,272 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"time"
 
-	"order-service/internal/cache"
+	"order-service/internal/config"
 	"order-service/internal/models"
 	"order-service/internal/repository"
-
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/propagation"
 )
-
-var tracer = otel.Tracer("order-service")
-
-type ProductResponse struct {
-	Status    string `json:"status"`
-	Timestamp string `json:"timestamp,omitempty"`
-	Data      struct {
-		ID          int    `json:"id"`
-		Name        string `json:"name"`
-		Description string `json:"description,omitempty"`
-		Price       string `json:"price"`
-		Stock       int    `json:"stock"`
-		InStock     bool   `json:"in_stock"`
-		SKU         string `json:"sku,omitempty"`
-	} `json:"data"`
-}
 
 type OrderService struct {
 	repo              *repository.OrderRepository
-	cache             *cache.RedisCache
-	httpClient        *http.Client
+	userServiceURL    string
 	productServiceURL string
-	inventoryClient   *InventoryClient
-	paymentClient     *PaymentClient
+	paymentServiceURL string
+	httpClient        *http.Client
 }
 
-func NewOrderService(repo *repository.OrderRepository, cache *cache.RedisCache, productServiceURL, inventoryServiceURL, paymentServiceURL string) *OrderService {
+func NewOrderService(repo *repository.OrderRepository, cfg *config.Config) *OrderService {
 	return &OrderService{
 		repo:              repo,
-		cache:             cache,
-		productServiceURL: productServiceURL,
-		inventoryClient:   NewInventoryClient(inventoryServiceURL),
-		paymentClient:     NewPaymentClient(paymentServiceURL),
+		userServiceURL:    cfg.UserServiceURL,
+		productServiceURL: cfg.ProductServiceURL,
+		paymentServiceURL: cfg.PaymentServiceURL,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
-			Transport: &http.Transport{
-				MaxIdleConns:        100,
-				MaxIdleConnsPerHost: 10,
-				IdleConnTimeout:     90 * time.Second,
-			},
 		},
 	}
 }
 
-func (s *OrderService) CreateOrder(ctx context.Context, order *models.Order) error {
-	ctx, span := tracer.Start(ctx, "CreateOrder")
-	defer span.End()
-
-	span.SetAttributes(
-		attribute.String("user_id", order.UserID),
-		attribute.Int("items_count", len(order.OrderItems)),
-	)
-
-	// Validate and calculate order
-	totalAmount := 0.0
-	for i := range order.OrderItems {
-		item := &order.OrderItems[i]
-
-		// Get product info from Product Service
-		product, err := s.getProductWithRetry(ctx, item.ProductID)
-		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "Failed to get product info")
-			return fmt.Errorf("failed to get product %s: %w", item.ProductID, err)
-		}
-
-		// Check stock
-		if product.Data.Stock < item.Quantity {
-			err := fmt.Errorf("insufficient stock for product %s", item.ProductID)
-			span.RecordError(err)
-			return err
-		}
-
-		// ✅ String price'ı float'a çevir
-		price, err := strconv.ParseFloat(product.Data.Price, 64)
-		if err != nil {
-			span.RecordError(err)
-			return fmt.Errorf("invalid price format for product %s: %w", item.ProductID, err)
-		}
-
-		// Calculate prices
-		item.UnitPrice = price
-		item.Subtotal = price * float64(item.Quantity)
-		totalAmount += item.Subtotal
-	}
-
-	// Check stock availability with Inventory Service
-	token, ok := ctx.Value("token").(string)
-	if !ok || token == "" {
-		return fmt.Errorf("authentication token not found")
-	}
-
-	for _, item := range order.OrderItems {
-		productID, err := strconv.Atoi(item.ProductID)
-		if err != nil {
-			span.RecordError(err)
-			return fmt.Errorf("invalid product ID format: %w", err)
-		}
-
-		available, err := s.inventoryClient.CheckStock(ctx, productID, item.Quantity, token)
-		if err != nil {
-			span.RecordError(err)
-			return fmt.Errorf("failed to check inventory: %w", err)
-		}
-
-		if !available {
-			err := fmt.Errorf("insufficient stock in inventory for product %s", item.ProductID)
-			span.RecordError(err)
-			return err
-		}
-	}
-
-	// Reserve stock
-	for i, item := range order.OrderItems {
-		productID, err := strconv.Atoi(item.ProductID)
-		if err != nil {
-			span.RecordError(err)
-			return fmt.Errorf("invalid product ID format: %w", err)
-		}
-
-		if err := s.inventoryClient.ReserveStock(ctx, productID, item.Quantity, token); err != nil {
-			span.RecordError(err)
-			// Release already reserved items
-			for j := 0; j < i; j++ {
-				prevProductID, _ := strconv.Atoi(order.OrderItems[j].ProductID)
-				s.inventoryClient.ReleaseStock(ctx, prevProductID, order.OrderItems[j].Quantity, token)
-			}
-			return fmt.Errorf("failed to reserve stock: %w", err)
-		}
-	}
-
-	order.TotalAmount = totalAmount
-	order.Status = models.OrderStatusPending
-
-	// Process payment
-	paymentReq := CreatePaymentRequest{
-		OrderID:       order.ID,
-		UserID:        order.UserID,
-		Amount:        totalAmount,
-		Currency:      "USD",
-		PaymentMethod: "CREDIT_CARD", // Default
-	}
-
-	paymentID, err := s.paymentClient.ProcessPayment(ctx, paymentReq, token)
+// ValidateToken - User Service'den token doğrulama
+func (s *OrderService) ValidateToken(token string) (uint, error) {
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s/api/auth/validate", s.userServiceURL), nil)
 	if err != nil {
-		span.RecordError(err)
-		// Release reserved stock if payment fails
-		for _, item := range order.OrderItems {
-			productID, _ := strconv.Atoi(item.ProductID)
-			s.inventoryClient.ReleaseStock(ctx, productID, item.Quantity, token)
-		}
-		return fmt.Errorf("payment failed: %w", err)
+		return 0, err
 	}
-
-	span.SetAttributes(attribute.String("payment_id", paymentID))
-	order.Status = models.OrderStatusConfirmed // Payment successful
-
-	// Create order in database
-	if err := s.repo.Create(ctx, order); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Failed to create order")
-		return err
-	}
-
-	// Invalidate user's orders cache
-	cacheKey := fmt.Sprintf("user_orders:%s", order.UserID)
-	s.cache.DeletePattern(ctx, cacheKey+"*")
-
-	span.SetStatus(codes.Ok, "Order created successfully")
-	return nil
-}
-
-func (s *OrderService) getProductWithRetry(ctx context.Context, productID string) (*ProductResponse, error) {
-	ctx, span := tracer.Start(ctx, "getProductWithRetry")
-	defer span.End()
-
-	var lastErr error
-	maxRetries := 3
-
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		product, err := s.getProduct(ctx, productID)
-		if err == nil {
-			span.SetAttributes(attribute.Int("retry_attempt", attempt))
-			return product, nil
-		}
-
-		lastErr = err
-		if attempt < maxRetries-1 {
-			backoff := time.Duration(attempt+1) * time.Second
-			time.Sleep(backoff)
-		}
-	}
-
-	span.RecordError(lastErr)
-	span.SetStatus(codes.Error, "All retry attempts failed")
-	return nil, fmt.Errorf("failed after %d attempts: %w", maxRetries, lastErr)
-}
-
-func (s *OrderService) getProduct(ctx context.Context, productID string) (*ProductResponse, error) {
-	ctx, span := tracer.Start(ctx, "getProduct")
-	defer span.End()
-
-	url := fmt.Sprintf("%s/api/products/%s/", s.productServiceURL, productID) // ✅ Sondaki slash
-
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	// Inject tracing headers for distributed tracing
-	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		span.RecordError(err)
-		return nil, fmt.Errorf("product service request failed: %w", err)
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, errors.New("invalid token")
+	}
+
+	var result struct {
+		Status string `json:"status"`
+		Data   struct {
+			UserID uint `json:"user_id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0, err
+	}
+
+	return result.Data.UserID, nil
+}
+
+// CheckStock - Product Service'den stok kontrolü
+func (s *OrderService) CheckStock(productID uint, quantity int, token string) (bool, error) {
+	url := fmt.Sprintf("%s/api/products/%d/check_stock/?quantity=%d",
+		s.productServiceURL, productID, quantity)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("failed to check stock: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		err := fmt.Errorf("product service returned %d: %s", resp.StatusCode, string(body))
-		span.RecordError(err)
-		return nil, err
+		return false, fmt.Errorf("stock check failed: %s", string(body))
 	}
 
-	var product ProductResponse
-	if err := json.NewDecoder(resp.Body).Decode(&product); err != nil {
-		span.RecordError(err)
-		return nil, fmt.Errorf("failed to decode product response: %w", err)
+	var result struct {
+		Status string `json:"status"`
+		Data   struct {
+			IsAvailable bool `json:"is_available"`
+		} `json:"data"`
 	}
 
-	return &product, nil
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return false, err
+	}
+
+	return result.Data.IsAvailable, nil
 }
 
-func (s *OrderService) GetOrderByID(ctx context.Context, id string) (*models.Order, error) {
-	ctx, span := tracer.Start(ctx, "GetOrderByID")
-	defer span.End()
+// UpdateStock - Product Service'de stok güncelleme (azaltma)
+func (s *OrderService) UpdateStock(productID uint, quantity int, token string) error {
+	url := fmt.Sprintf("%s/api/products/%d/update_stock/", s.productServiceURL, productID)
 
-	span.SetAttributes(attribute.String("order_id", id))
-
-	// Try cache first
-	cacheKey := fmt.Sprintf("order:%s", id)
-	var order models.Order
-	if err := s.cache.Get(ctx, cacheKey, &order); err == nil {
-		span.SetAttributes(attribute.Bool("cache_hit", true))
-		return &order, nil
+	payload := map[string]int{
+		"quantity": -quantity, // Negative = decrease stock
 	}
-
-	span.SetAttributes(attribute.Bool("cache_hit", false))
-
-	// Get from database
-	orderPtr, err := s.repo.GetByID(ctx, id)
+	jsonData, err := json.Marshal(payload)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "Order not found")
-		return nil, err
-	}
-
-	// Cache for 5 minutes
-	s.cache.Set(ctx, cacheKey, orderPtr, 5*time.Minute)
-
-	return orderPtr, nil
-}
-
-func (s *OrderService) GetUserOrders(ctx context.Context, userID string, page, pageSize int) ([]models.Order, int64, error) {
-	ctx, span := tracer.Start(ctx, "GetUserOrders")
-	defer span.End()
-
-	span.SetAttributes(
-		attribute.String("user_id", userID),
-		attribute.Int("page", page),
-		attribute.Int("page_size", pageSize),
-	)
-
-	offset := (page - 1) * pageSize
-
-	// Try cache
-	cacheKey := fmt.Sprintf("user_orders:%s:page:%d:size:%d", userID, page, pageSize)
-	var cachedResult struct {
-		Orders []models.Order `json:"orders"`
-		Total  int64          `json:"total"`
-	}
-
-	if err := s.cache.Get(ctx, cacheKey, &cachedResult); err == nil {
-		span.SetAttributes(attribute.Bool("cache_hit", true))
-		return cachedResult.Orders, cachedResult.Total, nil
-	}
-
-	span.SetAttributes(attribute.Bool("cache_hit", false))
-
-	orders, total, err := s.repo.GetByUserID(ctx, userID, pageSize, offset)
-	if err != nil {
-		span.RecordError(err)
-		return nil, 0, err
-	}
-
-	// Cache for 2 minutes
-	cachedResult.Orders = orders
-	cachedResult.Total = total
-	s.cache.Set(ctx, cacheKey, cachedResult, 2*time.Minute)
-
-	return orders, total, nil
-}
-
-func (s *OrderService) GetAllOrders(ctx context.Context, page, pageSize int) ([]models.Order, int64, error) {
-	ctx, span := tracer.Start(ctx, "GetAllOrders")
-	defer span.End()
-
-	offset := (page - 1) * pageSize
-	return s.repo.GetAll(ctx, pageSize, offset)
-}
-
-func (s *OrderService) UpdateOrderStatus(ctx context.Context, id string, status models.OrderStatus) error {
-	ctx, span := tracer.Start(ctx, "UpdateOrderStatus")
-	defer span.End()
-
-	span.SetAttributes(
-		attribute.String("order_id", id),
-		attribute.String("new_status", string(status)),
-	)
-
-	if err := s.repo.UpdateStatus(ctx, id, status); err != nil {
-		span.RecordError(err)
 		return err
 	}
 
-	// Invalidate cache
-	cacheKey := fmt.Sprintf("order:%s", id)
-	s.cache.Delete(ctx, cacheKey)
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to update stock: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("stock update failed: %s", string(body))
+	}
 
 	return nil
 }
 
-func (s *OrderService) CancelOrder(ctx context.Context, id string) error {
-	return s.UpdateOrderStatus(ctx, id, models.OrderStatusCancelled)
+// ProcessPayment - Payment Service'e ödeme isteği
+func (s *OrderService) ProcessPayment(orderID uint, amount float64, token string) (string, error) {
+	url := fmt.Sprintf("%s/api/payments", s.paymentServiceURL)
+
+	payload := map[string]interface{}{
+		"order_id": orderID,
+		"amount":   amount,
+		"currency": "USD",
+		"method":   "credit_card",
+	}
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to process payment: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Status  string `json:"status"`
+		Message string `json:"message"`
+		Data    struct {
+			PaymentID string `json:"payment_id"`
+			Status    string `json:"status"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return "", fmt.Errorf("payment failed: %s", result.Message)
+	}
+
+	return result.Data.PaymentID, nil
+}
+
+// CreateOrder - Yeni order oluşturma
+func (s *OrderService) CreateOrder(ctx context.Context, userID uint, productID uint, quantity int, token string) (*models.Order, error) {
+	// 1. Stock kontrolü
+	available, err := s.CheckStock(productID, quantity, token)
+	if err != nil {
+		return nil, fmt.Errorf("stock check failed: %w", err)
+	}
+	if !available {
+		return nil, errors.New("insufficient stock")
+	}
+
+	// 2. Order oluştur (status: PENDING)
+	order := &models.Order{
+		UserID:      userID,
+		ProductID:   productID,
+		Quantity:    quantity,
+		Status:      models.OrderStatusPending,
+		TotalAmount: 99.99, // TODO: Get real price from Product Service
+	}
+
+	if err := s.repo.Create(ctx, order); err != nil {
+		return nil, fmt.Errorf("failed to create order: %w", err)
+	}
+
+	// 3. Payment işlemi
+	paymentID, err := s.ProcessPayment(order.ID, order.TotalAmount, token)
+	if err != nil {
+		// Payment başarısız - order'ı iptal et
+		order.Status = models.OrderStatusCancelled
+		s.repo.Update(ctx, order)
+		return nil, fmt.Errorf("payment failed: %w", err)
+	}
+
+	// 4. Payment başarılı - Stok azalt
+	if err := s.UpdateStock(productID, quantity, token); err != nil {
+		// Stok azaltma başarısız - order'ı iptal et
+		order.Status = models.OrderStatusCancelled
+		s.repo.Update(ctx, order)
+		return nil, fmt.Errorf("stock update failed: %w", err)
+	}
+
+	// 5. Order'ı COMPLETED olarak işaretle
+	order.Status = models.OrderStatusCompleted
+	order.PaymentID = &paymentID
+	if err := s.repo.Update(ctx, order); err != nil {
+		return nil, fmt.Errorf("failed to update order status: %w", err)
+	}
+
+	return order, nil
+}
+
+// GetOrderByID - Order'ı ID ile getir
+func (s *OrderService) GetOrderByID(ctx context.Context, id uint) (*models.Order, error) {
+	return s.repo.GetByID(ctx, id)
+}
+
+// GetOrdersByUser - Kullanıcının tüm order'larını getir
+func (s *OrderService) GetOrdersByUser(ctx context.Context, userID uint) ([]*models.Order, error) {
+	return s.repo.GetByUserID(ctx, userID)
+}
+
+// GetAllOrders - Tüm order'ları getir
+func (s *OrderService) GetAllOrders(ctx context.Context) ([]*models.Order, error) {
+	return s.repo.GetAll(ctx)
+}
+
+// UpdateOrderStatus - Order status güncelleme
+func (s *OrderService) UpdateOrderStatus(ctx context.Context, id uint, status string) error {
+	order, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	order.Status = status
+	return s.repo.Update(ctx, order)
+}
+
+// CancelOrder - Order iptali
+func (s *OrderService) CancelOrder(ctx context.Context, id uint) error {
+	order, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	order.Status = models.OrderStatusCancelled
+	return s.repo.Update(ctx, order)
 }

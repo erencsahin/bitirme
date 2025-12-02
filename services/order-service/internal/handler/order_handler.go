@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"order-service/internal/models"
 	"order-service/internal/service"
@@ -18,55 +19,56 @@ func NewOrderHandler(service *service.OrderService) *OrderHandler {
 	return &OrderHandler{service: service}
 }
 
-type CreateOrderRequest struct {
-	UserID          string                   `json:"user_id" binding:"required"`
-	ShippingAddress string                   `json:"shipping_address" binding:"required"`
-	BillingAddress  string                   `json:"billing_address"`
-	Notes           string                   `json:"notes"`
-	OrderItems      []CreateOrderItemRequest `json:"order_items" binding:"required,min=1,dive"`
+// extractToken - Authorization header'dan token'ı çıkar
+func (h *OrderHandler) extractToken(c *gin.Context) (string, error) {
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		return "", gin.Error{Err: http.ErrNotSupported, Type: gin.ErrorTypePublic}
+	}
+
+	parts := strings.Split(authHeader, " ")
+	if len(parts) != 2 || parts[0] != "Bearer" {
+		return "", gin.Error{Err: http.ErrNotSupported, Type: gin.ErrorTypePublic}
+	}
+
+	return parts[1], nil
 }
 
-type CreateOrderItemRequest struct {
-	ProductID string `json:"product_id" binding:"required"`
-	Quantity  int    `json:"quantity" binding:"required,min=1"`
-}
-
-type UpdateStatusRequest struct {
-	Status string `json:"status" binding:"required,oneof=pending confirmed shipped delivered cancelled"`
-}
-
+// CreateOrder - POST /api/orders
 func (h *OrderHandler) CreateOrder(c *gin.Context) {
-	var req CreateOrderRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
+	token, err := h.extractToken(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
 			"status":  "error",
-			"message": "Invalid request body",
-			"error":   err.Error(),
+			"message": "Missing or invalid token",
 		})
 		return
 	}
 
-	order := &models.Order{
-		UserID:          req.UserID,
-		ShippingAddress: req.ShippingAddress,
-		BillingAddress:  req.BillingAddress,
-		Notes:           req.Notes,
-		Currency:        "USD",
-		OrderItems:      make([]models.OrderItem, len(req.OrderItems)),
-	}
-
-	for i, item := range req.OrderItems {
-		order.OrderItems[i] = models.OrderItem{
-			ProductID: item.ProductID,
-			Quantity:  item.Quantity,
-		}
-	}
-
-	if err := h.service.CreateOrder(c.Request.Context(), order); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
+	// Token validation
+	userID, err := h.service.ValidateToken(token)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
 			"status":  "error",
-			"message": "Failed to create order",
-			"error":   err.Error(),
+			"message": "Invalid token",
+		})
+		return
+	}
+
+	var req models.CreateOrderRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status":  "error",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	order, err := h.service.CreateOrder(c.Request.Context(), userID, req.ProductID, req.Quantity, token)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status":  "error",
+			"message": err.Error(),
 		})
 		return
 	}
@@ -78,15 +80,22 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 	})
 }
 
+// GetOrder - GET /api/orders/:id
 func (h *OrderHandler) GetOrder(c *gin.Context) {
-	id := c.Param("id")
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status":  "error",
+			"message": "Invalid order ID",
+		})
+		return
+	}
 
-	order, err := h.service.GetOrderByID(c.Request.Context(), id)
+	order, err := h.service.GetOrderByID(c.Request.Context(), uint(id))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"status":  "error",
 			"message": "Order not found",
-			"error":   err.Error(),
 		})
 		return
 	}
@@ -97,110 +106,64 @@ func (h *OrderHandler) GetOrder(c *gin.Context) {
 	})
 }
 
+// GetUserOrders - GET /api/orders/user/:user_id
 func (h *OrderHandler) GetUserOrders(c *gin.Context) {
-	userID := c.Param("user_id")
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
-
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 10
-	}
-
-	orders, total, err := h.service.GetUserOrders(c.Request.Context(), userID, page, pageSize)
+	userID, err := strconv.ParseUint(c.Param("user_id"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"status":  "error",
-			"message": "Failed to fetch orders",
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"status": "success",
-		"data":   orders,
-		"pagination": gin.H{
-			"page":        page,
-			"page_size":   pageSize,
-			"total":       total,
-			"total_pages": (total + int64(pageSize) - 1) / int64(pageSize),
-		},
-	})
-}
-
-func (h *OrderHandler) GetAllOrders(c *gin.Context) {
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
-
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 10
-	}
-
-	orders, total, err := h.service.GetAllOrders(c.Request.Context(), page, pageSize)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"status":  "error",
-			"message": "Failed to fetch orders",
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"status": "success",
-		"data":   orders,
-		"pagination": gin.H{
-			"page":        page,
-			"page_size":   pageSize,
-			"total":       total,
-			"total_pages": (total + int64(pageSize) - 1) / int64(pageSize),
-		},
-	})
-}
-
-func (h *OrderHandler) UpdateOrderStatus(c *gin.Context) {
-	id := c.Param("id")
-
-	var req UpdateStatusRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"status":  "error",
-			"message": "Invalid request body",
-			"error":   err.Error(),
+			"message": "Invalid user ID",
 		})
 		return
 	}
 
-	status := models.OrderStatus(req.Status)
-	if err := h.service.UpdateOrderStatus(c.Request.Context(), id, status); err != nil {
+	orders, err := h.service.GetOrdersByUser(c.Request.Context(), uint(userID))
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"status":  "error",
-			"message": "Failed to update order status",
-			"error":   err.Error(),
+			"message": err.Error(),
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"status":  "success",
-		"message": "Order status updated successfully",
+		"status": "success",
+		"data":   orders,
 	})
 }
 
-func (h *OrderHandler) CancelOrder(c *gin.Context) {
-	id := c.Param("id")
-
-	if err := h.service.CancelOrder(c.Request.Context(), id); err != nil {
+// GetAllOrders - GET /api/orders
+func (h *OrderHandler) GetAllOrders(c *gin.Context) {
+	orders, err := h.service.GetAllOrders(c.Request.Context())
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"status":  "error",
-			"message": "Failed to cancel order",
-			"error":   err.Error(),
+			"message": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status": "success",
+		"data":   orders,
+	})
+}
+
+// CancelOrder - PUT /api/orders/:id/cancel
+func (h *OrderHandler) CancelOrder(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status":  "error",
+			"message": "Invalid order ID",
+		})
+		return
+	}
+
+	if err := h.service.CancelOrder(c.Request.Context(), uint(id)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status":  "error",
+			"message": err.Error(),
 		})
 		return
 	}
@@ -208,5 +171,13 @@ func (h *OrderHandler) CancelOrder(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"status":  "success",
 		"message": "Order cancelled successfully",
+	})
+}
+
+// Health check
+func (h *OrderHandler) Health(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "success",
+		"message": "Order service is healthy",
 	})
 }

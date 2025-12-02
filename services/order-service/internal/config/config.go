@@ -1,55 +1,33 @@
 package config
 
 import (
-	"log"
 	"os"
-	"strconv"
-
-	"github.com/joho/godotenv"
 )
 
 type Config struct {
-	ServerPort          string
-	DatabaseURL         string
-	RedisURL            string
-	OTELEndpoint        string
-	ServiceName         string
-	Environment         string
-	ProductServiceURL   string
-	InventoryServiceURL string
-	PaymentServiceURL   string
-	UserServiceURL      string
+	Port              string
+	DatabaseURL       string
+	RedisURL          string
+	UserServiceURL    string
+	ProductServiceURL string
+	PaymentServiceURL string
+	JWTSecret         string
 }
 
-func Load() *Config {
-	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found")
-	}
-
+func LoadConfig() *Config {
 	return &Config{
-		ServerPort:          getEnv("SERVER_PORT", "8003"),
-		DatabaseURL:         getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/orders?sslmode=disable"),
-		RedisURL:            getEnv("REDIS_URL", "localhost:6379"),
-		OTELEndpoint:        getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317"),
-		ServiceName:         getEnv("SERVICE_NAME", "order-service"),
-		Environment:         getEnv("ENVIRONMENT", "development"),
-		ProductServiceURL:   getEnv("PRODUCT_SERVICE_URL", "http://localhost:8002"),
-		UserServiceURL:      getEnv("USER_SERVICE_URL", "http://localhost:8083"),
-		InventoryServiceURL: getEnv("INVENTORY_SERVICE_URL", "http://localhost:8084"),
-		PaymentServiceURL:   getEnv("PAYMENT_SERVICE_URL", "http://localhost:8085"),
+		Port:              getEnv("PORT", "8003"),
+		DatabaseURL:       getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/order_db?sslmode=disable"),
+		RedisURL:          getEnv("REDIS_URL", "redis://localhost:6379/2"),
+		UserServiceURL:    getEnv("USER_SERVICE_URL", "http://localhost:8001"),
+		ProductServiceURL: getEnv("PRODUCT_SERVICE_URL", "http://localhost:8000"),
+		PaymentServiceURL: getEnv("PAYMENT_SERVICE_URL", "http://localhost:8085"),
+		JWTSecret:         getEnv("JWT_SECRET", "your-secret-key"),
 	}
 }
 
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-func getEnvAsInt(key string, defaultValue int) int {
-	valueStr := getEnv(key, "")
-	if value, err := strconv.Atoi(valueStr); err == nil {
 		return value
 	}
 	return defaultValue
