@@ -9,31 +9,35 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d products_db"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
-      - default
+      - product-network
+    restart: unless-stopped
 
   redis:
-    image: redis:7.4-alpine  # Versiyon ekle
+    image: redis:7.4-alpine
     platform: linux/amd64
     container_name: django-redis
     ports:
-      - "6379:6379"
+      - "6380:6379"
     command: redis-server --save 60 1 --loglevel warning --ignore-warnings ARM64-COW-BUG
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 3s
       retries: 5
     networks:
-      - default
+      - product-network
+    restart: unless-stopped
 
   django:
     build: .
@@ -69,12 +73,16 @@ services:
         gunicorn --bind 0.0.0.0:8000 --workers 2 --threads 4 --reload config.wsgi:application
       "
     networks:
-      - default
+      - product-network
+      - microservices-network  # ← EKLENDI
+    restart: unless-stopped
 
 volumes:
   postgres_data:
+  redis_data:
 
 networks:
-  default:
-    name: django-service_default
+  product-network:  # ← DEĞİŞTİ (default yerine product-network)
     driver: bridge
+  microservices-network:  # ← EKLENDI
+    external: true

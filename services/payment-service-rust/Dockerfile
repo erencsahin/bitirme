@@ -1,23 +1,23 @@
 # Build stage
-FROM rust:1.75-alpine AS builder
+FROM rustlang/rust:nightly-alpine AS builder
 
 WORKDIR /app
 
-# Install dependencies
-RUN apk add --no-cache musl-dev openssl-dev
+# Install build dependencies
+RUN apk add --no-cache musl-dev openssl-dev pkgconfig
 
 # Copy manifests
-COPY Cargo.toml Cargo.lock ./
+COPY Cargo.toml ./
 
 # Create dummy main to cache dependencies
 RUN mkdir src && echo "fn main() {}" > src/main.rs
 RUN cargo build --release
 RUN rm -rf src
 
-# Copy actual source
+# Copy real source code
 COPY . .
 
-# Build application
+# Build for release
 RUN cargo build --release
 
 # Runtime stage
@@ -28,12 +28,12 @@ WORKDIR /app
 # Install runtime dependencies
 RUN apk add --no-cache libgcc
 
-# Copy binary
-COPY --from=builder /app/target/release/payment-service /app/payment-service
+# Copy binary from builder
+COPY --from=builder /app/target/release/payment-service .
 
-# Copy migrations
-COPY --from=builder /app/migrations /app/migrations
+# Copy .env if exists
+COPY .env* ./
 
 EXPOSE 8085
 
-CMD ["/app/payment-service"]
+CMD ["./payment-service"]

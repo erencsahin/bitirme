@@ -9,33 +9,35 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "5437:5432"
+      - "5436:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    networks:
-      - payment-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d payment_db"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - payment-network
+    restart: unless-stopped
 
   redis:
     image: redis:7.4-alpine
     platform: linux/amd64
     container_name: payment-redis
-    command: redis-server --requirepass redispass --save 60 1 --loglevel warning --ignore-warnings ARM64-COW-BUG
+    command: redis-server --requirepass redispass --save 60 1 --loglevel warning --ignore-warnings ARM64-COW-BUG  # ← ŞİFRE EKLENDI
     ports:
-      - "6384:6379"
+      - "6383:6379"
     volumes:
       - redis_data:/data
-    networks:
-      - payment-network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "redispass", "ping"]  # ← ŞİFRE EKLENDI
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - payment-network
+    restart: unless-stopped
 
   payment-service:
     build:
@@ -47,7 +49,7 @@ services:
       - DATABASE_URL=postgres://postgres:postgres@postgres:5432/payment_db
       - REDIS_URL=redis://:redispass@redis:6379
       - JWT_SECRET=your-secret-key-min-32-chars-long-for-security
-      - ORDER_SERVICE_URL=http://host.docker.internal:8082
+      - USER_SERVICE_URL=http://user-service:8001  # ← DÜZELTİLDİ
       - RUST_LOG=info
     ports:
       - "8085:8085"
@@ -58,6 +60,7 @@ services:
         condition: service_healthy
     networks:
       - payment-network
+      - microservices-network  # ← EKLENDI
     restart: unless-stopped
 
 volumes:
@@ -67,3 +70,5 @@ volumes:
 networks:
   payment-network:
     driver: bridge
+  microservices-network:  # ← EKLENDI
+    external: true

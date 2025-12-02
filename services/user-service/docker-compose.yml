@@ -28,6 +28,7 @@ services:
         condition: service_healthy
     networks:
       - user-network
+      - microservices-network  # ← EKLENDI
     restart: unless-stopped
 
   postgres-user:
@@ -52,9 +53,11 @@ services:
 
   redis-user:
     image: redis:7.4-alpine
+    platform: linux/amd64
     container_name: redis-user
     ports:
       - "6381:6379"
+    command: redis-server --save 60 1 --loglevel warning
     volumes:
       - redis-user-data:/data
     healthcheck:
@@ -69,6 +72,8 @@ services:
 networks:
   user-network:
     driver: bridge
+  microservices-network:  # ← EKLENDI
+    external: true
 
 volumes:
   postgres-user-data:
