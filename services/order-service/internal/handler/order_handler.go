@@ -38,7 +38,7 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 		return
 	}
 
-	userID, err := h.svc.ValidateToken(token)
+	userID, err := h.svc.ValidateToken(c, token)
 	if err != nil {
 		c.JSON(401, gin.H{"error": "invalid token"})
 		return

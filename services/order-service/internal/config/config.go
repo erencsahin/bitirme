@@ -8,6 +8,8 @@ type Config struct {
 	UserServiceURL    string
 	ProductServiceURL string
 	PaymentServiceURL string
+	OTELEndpoint      string
+	ServiceName       string
 }
 
 func Load() *Config {
@@ -17,6 +19,8 @@ func Load() *Config {
 		UserServiceURL:    getEnv("USER_SERVICE_URL", "http://localhost:8001"),
 		ProductServiceURL: getEnv("PRODUCT_SERVICE_URL", "http://localhost:8000"),
 		PaymentServiceURL: getEnv("PAYMENT_SERVICE_URL", "http://localhost:8085"),
+		OTELEndpoint:      getEnv("OTEL_ENDPOINT", "localhost:4317"),
+		ServiceName:       getEnv("SERVICE_NAME", "order-service"),
 	}
 }
 
