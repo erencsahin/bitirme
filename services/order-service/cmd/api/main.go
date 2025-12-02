@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 
 	"order-service/internal/config"
@@ -17,67 +16,47 @@ import (
 )
 
 func main() {
-	// Load .env
-	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, using environment variables")
-	}
+	godotenv.Load()
 
-	// Load config
-	cfg := config.LoadConfig()
+	cfg := config.Load()
 
-	// Database connection
 	db, err := gorm.Open(postgres.Open(cfg.DatabaseURL), &gorm.Config{})
 	if err != nil {
-		log.Fatal("Failed to connect to database:", err)
+		log.Fatal(err)
 	}
 
-	// Auto migrate
-	if err := db.AutoMigrate(&models.Order{}); err != nil {
-		log.Fatal("Failed to migrate database:", err)
-	}
+	db.AutoMigrate(&models.Order{})
 
-	// Initialize layers
-	orderRepo := repository.NewOrderRepository(db)
-	orderService := service.NewOrderService(orderRepo, cfg)
-	orderHandler := handler.NewOrderHandler(orderService)
+	repo := repository.New(db)
+	svc := service.New(repo, cfg)
+	h := handler.New(svc)
 
-	// Setup Gin router
-	router := gin.Default()
+	r := gin.Default()
 
-	// CORS middleware
-	router.Use(func(c *gin.Context) {
+	r.Use(func(c *gin.Context) {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
-
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type,Authorization")
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return
 		}
-
 		c.Next()
 	})
 
-	// Routes
-	api := router.Group("/api")
+	api := r.Group("/api")
 	{
-		api.GET("/health", orderHandler.Health)
-
+		api.GET("/health", h.Health)
 		orders := api.Group("/orders")
 		{
-			orders.POST("", orderHandler.CreateOrder)
-			orders.GET("", orderHandler.GetAllOrders)
-			orders.GET("/:id", orderHandler.GetOrder)
-			orders.GET("/user/:user_id", orderHandler.GetUserOrders)
-			orders.PUT("/:id/cancel", orderHandler.CancelOrder)
+			orders.POST("", h.CreateOrder)
+			orders.GET("", h.GetAllOrders)
+			orders.GET("/:id", h.GetOrder)
+			orders.GET("/user/:user_id", h.GetUserOrders)
+			orders.PUT("/:id/cancel", h.CancelOrder)
 		}
 	}
 
-	// Start server
-	port := cfg.Port
-	fmt.Printf("🚀 Order Service starting on port %s\n", port)
-	if err := router.Run(":" + port); err != nil {
-		log.Fatal("Failed to start server:", err)
-	}
+	log.Printf("🚀 Order Service on port %s\n", cfg.Port)
+	r.Run(":" + cfg.Port)
 }
