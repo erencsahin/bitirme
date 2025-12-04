@@ -330,24 +330,29 @@ class ProductViewSet(viewsets.ModelViewSet):
         """Create new product"""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
-        
+
+        # Ürünü oluştur ve instance'ı al
+        product = serializer.save()
+
+        # Logging
         logger.info(
-            f"Product created: {serializer.data['name']}",
+            f"Product created: {product.name}",
             extra={
-                'product_id': serializer.data.get('id'),
-                'sku': serializer.data['sku']
-            }
+                "product_id": str(product.id),
+                "sku": product.sku,
+            },
         )
-        
-        # Get full product data
-        product = Product.objects.get(id=serializer.data['id'])
-        detail_serializer = ProductDetailSerializer(product)
-        
+
+        # Detay serializer (gerekliyse context de geçelim)
+        detail_serializer = ProductDetailSerializer(
+            product,
+            context=self.get_serializer_context(),
+        )
+
         return StandardResponse.success(
             data=detail_serializer.data,
             status_code=status.HTTP_201_CREATED,
-            message="Product created successfully"
+            message="Product created successfully",
         )
     
     def update(self, request, *args, **kwargs):

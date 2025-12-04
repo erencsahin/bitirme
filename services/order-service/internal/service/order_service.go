@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"time"
 
@@ -121,24 +123,35 @@ func (s *OrderService) UpdateStock(ctx context.Context, productID string, quanti
 }
 
 // ProcessPayment sends a payment request to the payment service.
-func (s *OrderService) ProcessPayment(ctx context.Context, orderID string, amount float64) (string, error) {
+func (s *OrderService) ProcessPayment(
+	ctx context.Context,
+	orderID string,
+	userID string,
+	amount float64,
+) (string, error) {
 	ctx, span := s.tracer.Start(ctx, "ProcessPayment")
 	defer span.End()
 
 	span.SetAttributes(
 		attribute.String("order_id", orderID),
+		attribute.String("user_id", userID),
 		attribute.Float64("amount", amount),
 	)
 
 	start := time.Now()
 	url := s.paymentServiceURL + "/api/payments"
+
 	payload := map[string]interface{}{
-		"order_id": orderID,
-		"amount":   amount,
+		"order_id":       orderID,
+		"user_id":        userID,
+		"amount":         amount,
+		"currency":       "TRY",
+		"payment_method": "CREDIT_CARD",
 	}
+
 	body, _ := json.Marshal(payload)
 
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(body))
+	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.client.Do(req)
@@ -152,23 +165,27 @@ func (s *OrderService) ProcessPayment(ctx context.Context, orderID string, amoun
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		span.SetStatus(codes.Error, "payment failed (non-2xx)")
+		b, _ := io.ReadAll(resp.Body)
+		log.Printf("payment-service error: status=%d body=%s", resp.StatusCode, string(b))
+
+		span.SetStatus(codes.Error, "payment failed")
 		return "", errors.New("payment failed")
 	}
 
 	var result struct {
 		Data struct {
-			PaymentID string `json:"payment_id"`
+			ID string `json:"id"`
 		} `json:"data"`
 	}
+
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "decode failed")
+		span.SetStatus(codes.Error, "decode payment response failed")
 		return "", err
 	}
 
-	span.SetAttributes(attribute.String("payment_id", result.Data.PaymentID))
-	return result.Data.PaymentID, nil
+	span.SetAttributes(attribute.String("payment_id", result.Data.ID))
+	return result.Data.ID, nil
 }
 
 // --- Public API used by handlers ---
@@ -247,7 +264,12 @@ func (s *OrderService) CreateOrder(ctx context.Context, userID string, req *mode
 	)
 
 	// 4) Process payment
-	paymentID, err := s.ProcessPayment(ctx, order.ID.String(), order.TotalAmount)
+	paymentID, err := s.ProcessPayment(
+		ctx,
+		order.ID.String(), // order ID uuid ise
+		userID,            // handler’dan gelen user_id (string)
+		order.TotalAmount, // hesapladığın toplam
+	)
 	if err != nil {
 		order.Status = "cancelled"
 		_ = s.repo.Update(ctx, order)
