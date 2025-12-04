@@ -7,6 +7,8 @@ from django.db.models import Avg, Count
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 import logging
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiExample
+from drf_spectacular.types import OpenApiTypes
 
 from .models import Product, Category
 from .serializers import (
@@ -22,6 +24,38 @@ from core.pagination import StandardPagination
 logger = logging.getLogger(__name__)
 
 
+@extend_schema_view(
+    list=extend_schema(
+        summary='List all categories',
+        description='Retrieve a paginated list of all product categories',
+        tags=['Categories'],
+    ),
+    retrieve=extend_schema(
+        summary='Get category by ID',
+        description='Retrieve a specific category by its ID',
+        tags=['Categories'],
+    ),
+    create=extend_schema(
+        summary='Create new category',
+        description='Create a new product category (requires authentication)',
+        tags=['Categories'],
+    ),
+    update=extend_schema(
+        summary='Update category',
+        description='Update an existing category (requires authentication)',
+        tags=['Categories'],
+    ),
+    partial_update=extend_schema(
+        summary='Partially update category',
+        description='Partially update an existing category (requires authentication)',
+        tags=['Categories'],
+    ),
+    destroy=extend_schema(
+        summary='Delete category',
+        description='Delete a category (requires authentication)',
+        tags=['Categories'],
+    ),
+)
 class CategoryViewSet(viewsets.ModelViewSet):
     """
     ViewSet for Category model
@@ -95,6 +129,12 @@ class CategoryViewSet(viewsets.ModelViewSet):
             status_code=status.HTTP_200_OK
         )
     
+    @extend_schema(
+        summary='Get category products',
+        description='Retrieve all products in a specific category',
+        tags=['Categories'],
+        responses={200: ProductListSerializer(many=True)},
+    )
     @action(detail=True, methods=['get'])
     def products(self, request, pk=None):
         """Get all products in a category"""
@@ -110,6 +150,82 @@ class CategoryViewSet(viewsets.ModelViewSet):
         return StandardResponse.success(data=serializer.data)
 
 
+@extend_schema_view(
+    list=extend_schema(
+        summary='List all products',
+        description='Retrieve a paginated list of all products with filtering options',
+        tags=['Products'],
+        parameters=[
+            OpenApiParameter(
+                name='category',
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                description='Filter by category ID',
+            ),
+            OpenApiParameter(
+                name='in_stock',
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description='Filter by stock availability (true/false)',
+            ),
+            OpenApiParameter(
+                name='is_active',
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description='Filter by active status (true/false)',
+            ),
+            OpenApiParameter(
+                name='min_price',
+                type=OpenApiTypes.DECIMAL,
+                location=OpenApiParameter.QUERY,
+                description='Minimum price filter',
+            ),
+            OpenApiParameter(
+                name='max_price',
+                type=OpenApiTypes.DECIMAL,
+                location=OpenApiParameter.QUERY,
+                description='Maximum price filter',
+            ),
+            OpenApiParameter(
+                name='search',
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description='Search in name, description, SKU',
+            ),
+            OpenApiParameter(
+                name='ordering',
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description='Order by: name, price, stock, rating, created_at (prefix with - for desc)',
+            ),
+        ],
+    ),
+    retrieve=extend_schema(
+        summary='Get product by ID',
+        description='Retrieve detailed information about a specific product',
+        tags=['Products'],
+    ),
+    create=extend_schema(
+        summary='Create new product',
+        description='Create a new product (requires authentication)',
+        tags=['Products'],
+    ),
+    update=extend_schema(
+        summary='Update product',
+        description='Update an existing product (requires authentication)',
+        tags=['Products'],
+    ),
+    partial_update=extend_schema(
+        summary='Partially update product',
+        description='Partially update an existing product (requires authentication)',
+        tags=['Products'],
+    ),
+    destroy=extend_schema(
+        summary='Delete product',
+        description='Soft delete a product by setting is_active to False (requires authentication)',
+        tags=['Products'],
+    ),
+)
 class ProductViewSet(viewsets.ModelViewSet):
     """
     ViewSet for Product model with advanced features
@@ -279,6 +395,29 @@ class ProductViewSet(viewsets.ModelViewSet):
             status_code=status.HTTP_200_OK
         )
     
+    @extend_schema(
+        summary='Get product statistics',
+        description='Get aggregated statistics for all products',
+        tags=['Products'],
+        responses={
+            200: {
+                'description': 'Statistics retrieved successfully',
+                'content': {
+                    'application/json': {
+                        'example': {
+                            'status': 'success',
+                            'data': {
+                                'total_products': 150,
+                                'avg_price': 299.99,
+                                'total_stock': 5000,
+                                'avg_rating': 4.3
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
     @action(detail=False, methods=['get'])
     def statistics(self, request):
         """Get product statistics"""
@@ -299,6 +438,21 @@ class ProductViewSet(viewsets.ModelViewSet):
         
         return StandardResponse.success(data=stats)
     
+    @extend_schema(
+        summary='Get low stock products',
+        description='Retrieve products with stock below a specified threshold',
+        tags=['Products'],
+        parameters=[
+            OpenApiParameter(
+                name='threshold',
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description='Stock threshold (default: 10)',
+                default=10,
+            ),
+        ],
+        responses={200: ProductListSerializer(many=True)},
+    )
     @action(detail=False, methods=['get'])
     def low_stock(self, request):
         """Get products with low stock"""
@@ -317,6 +471,45 @@ class ProductViewSet(viewsets.ModelViewSet):
         serializer = ProductListSerializer(products, many=True)
         return StandardResponse.success(data=serializer.data)
     
+    @extend_schema(
+        summary='Update product stock',
+        description='Add or subtract from product stock quantity',
+        tags=['Products'],
+        request={
+            'application/json': {
+                'type': 'object',
+                'properties': {
+                    'quantity': {
+                        'type': 'integer',
+                        'description': 'Quantity to add (positive) or subtract (negative)',
+                        'example': 10
+                    },
+                },
+                'required': ['quantity'],
+            }
+        },
+        responses={
+            200: {
+                'description': 'Stock updated successfully',
+                'content': {
+                    'application/json': {
+                        'example': {
+                            'status': 'success',
+                            'message': 'Stock updated successfully. New stock: 35',
+                            'data': {
+                                'id': '123e4567-e89b-12d3-a456-426614174000',
+                                'name': 'Product Name',
+                                'stock': 35
+                            }
+                        }
+                    }
+                }
+            },
+            400: {
+                'description': 'Invalid request or insufficient stock',
+            }
+        }
+    )
     @action(detail=True, methods=['post'])
     def update_stock(self, request, pk=None):
         """Update product stock"""
@@ -371,6 +564,42 @@ class ProductViewSet(viewsets.ModelViewSet):
             message=f"Stock updated successfully. New stock: {new_stock}"
         )
     
+    @extend_schema(
+        summary='Check stock availability',
+        description='Check if sufficient stock is available for a product',
+        tags=['Products'],
+        parameters=[
+            OpenApiParameter(
+                name='quantity',
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description='Quantity to check',
+                required=True,
+            ),
+        ],
+        responses={
+            200: {
+                'description': 'Stock availability checked',
+                'content': {
+                    'application/json': {
+                        'example': {
+                            'status': 'success',
+                            'data': {
+                                'product_id': '123e4567-e89b-12d3-a456-426614174000',
+                                'product_name': 'MacBook Pro M3',
+                                'requested_quantity': 5,
+                                'available_stock': 25,
+                                'is_available': True
+                            }
+                        }
+                    }
+                }
+            },
+            400: {
+                'description': 'Invalid quantity parameter',
+            }
+        }
+    )
     @action(detail=True, methods=['get'])
     def check_stock(self, request, pk=None):
         """
@@ -406,7 +635,7 @@ class ProductViewSet(viewsets.ModelViewSet):
         return Response({
             'status': 'success',
             'data': {
-                'product_id': product.id,
+                'product_id': str(product.id),
                 'product_name': product.name,
                 'requested_quantity': quantity,
                 'available_stock': product.stock,
@@ -414,6 +643,20 @@ class ProductViewSet(viewsets.ModelViewSet):
             }
         })
     
+    @extend_schema(
+        summary='Search products',
+        description='Search products using query parameters (alias for list with filters)',
+        tags=['Products'],
+        parameters=[
+            OpenApiParameter(
+                name='search',
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description='Search term',
+            ),
+        ],
+        responses={200: ProductListSerializer(many=True)},
+    )
     @action(detail=False, methods=['get'])
     def search(self, request):
         """Search products (alias for queryset filtering)"""

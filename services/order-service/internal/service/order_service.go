@@ -40,50 +40,22 @@ func New(repo *repository.OrderRepository, cfg *config.Config) *OrderService {
 	}
 }
 
-func (s *OrderService) ValidateToken(ctx context.Context, token string) (uint, error) {
-	ctx, span := s.tracer.Start(ctx, "ValidateToken")
-	defer span.End()
+// --- Helper calls to other services ---
 
-	req, _ := http.NewRequestWithContext(ctx, "GET", s.userServiceURL+"/api/auth/validate", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	resp, err := s.client.Do(req)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "token validation failed")
-		return 0, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		span.SetStatus(codes.Error, "invalid token")
-		return 0, errors.New("invalid token")
-	}
-
-	var result struct {
-		Data struct {
-			UserID uint `json:"user_id"`
-		} `json:"data"`
-	}
-	json.NewDecoder(resp.Body).Decode(&result)
-
-	span.SetAttributes(attribute.Int("user_id", int(result.Data.UserID)))
-	return result.Data.UserID, nil
-}
-
-func (s *OrderService) CheckStock(ctx context.Context, productID uint, quantity int) (bool, error) {
+// CheckStock checks if the given quantity is available for the product.
+func (s *OrderService) CheckStock(ctx context.Context, productID string, quantity int) (bool, error) {
 	ctx, span := s.tracer.Start(ctx, "CheckStock")
 	defer span.End()
 
 	span.SetAttributes(
-		attribute.Int("product_id", int(productID)),
+		attribute.String("product_id", productID),
 		attribute.Int("quantity", quantity),
 	)
 
 	start := time.Now()
-	url := fmt.Sprintf("%s/api/products/%d/check_stock/?quantity=%d", s.productServiceURL, productID, quantity)
+	url := fmt.Sprintf("%s/api/products/%s/check_stock/?quantity=%d", s.productServiceURL, productID, quantity)
 
-	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	resp, err := s.client.Do(req)
 
 	metrics.StockCheckDuration.Observe(time.Since(start).Seconds())
@@ -95,8 +67,8 @@ func (s *OrderService) CheckStock(ctx context.Context, productID uint, quantity 
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
-		span.SetStatus(codes.Error, "stock check failed")
+	if resp.StatusCode != http.StatusOK {
+		span.SetStatus(codes.Error, "stock check failed (non-200)")
 		return false, errors.New("stock check failed")
 	}
 
@@ -105,28 +77,32 @@ func (s *OrderService) CheckStock(ctx context.Context, productID uint, quantity 
 			IsAvailable bool `json:"is_available"`
 		} `json:"data"`
 	}
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "decode failed")
+		return false, err
+	}
 
 	span.SetAttributes(attribute.Bool("is_available", result.Data.IsAvailable))
 	return result.Data.IsAvailable, nil
 }
 
-func (s *OrderService) UpdateStock(ctx context.Context, productID uint, quantity int, token string) error {
+// UpdateStock decreases stock for a product (negative quantity).
+func (s *OrderService) UpdateStock(ctx context.Context, productID string, quantity int) error {
 	ctx, span := s.tracer.Start(ctx, "UpdateStock")
 	defer span.End()
 
 	span.SetAttributes(
-		attribute.Int("product_id", int(productID)),
-		attribute.Int("quantity", -quantity),
+		attribute.String("product_id", productID),
+		attribute.Int("quantity_delta", -quantity),
 	)
 
-	url := fmt.Sprintf("%s/api/products/%d/update_stock/", s.productServiceURL, productID)
+	url := fmt.Sprintf("%s/api/products/%s/update_stock/", s.productServiceURL, productID)
 	payload := map[string]int{"quantity": -quantity}
 	body, _ := json.Marshal(payload)
 
-	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(body))
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
@@ -136,33 +112,36 @@ func (s *OrderService) UpdateStock(ctx context.Context, productID uint, quantity
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
-		span.SetStatus(codes.Error, "stock update failed")
+	if resp.StatusCode != http.StatusOK {
+		span.SetStatus(codes.Error, "stock update failed (non-200)")
 		return errors.New("stock update failed")
 	}
 
 	return nil
 }
 
-func (s *OrderService) ProcessPayment(ctx context.Context, orderID uint, amount float64) (string, error) {
+// ProcessPayment sends a payment request to the payment service.
+func (s *OrderService) ProcessPayment(ctx context.Context, orderID string, amount float64) (string, error) {
 	ctx, span := s.tracer.Start(ctx, "ProcessPayment")
 	defer span.End()
 
 	span.SetAttributes(
-		attribute.Int("order_id", int(orderID)),
+		attribute.String("order_id", orderID),
 		attribute.Float64("amount", amount),
 	)
 
 	start := time.Now()
 	url := s.paymentServiceURL + "/api/payments"
-	payload := map[string]interface{}{"order_id": orderID, "amount": amount}
+	payload := map[string]interface{}{
+		"order_id": orderID,
+		"amount":   amount,
+	}
 	body, _ := json.Marshal(payload)
 
-	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(body))
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.client.Do(req)
-
 	metrics.PaymentProcessDuration.Observe(time.Since(start).Seconds())
 
 	if err != nil {
@@ -172,8 +151,8 @@ func (s *OrderService) ProcessPayment(ctx context.Context, orderID uint, amount 
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 && resp.StatusCode != 201 {
-		span.SetStatus(codes.Error, "payment failed")
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		span.SetStatus(codes.Error, "payment failed (non-2xx)")
 		return "", errors.New("payment failed")
 	}
 
@@ -182,20 +161,26 @@ func (s *OrderService) ProcessPayment(ctx context.Context, orderID uint, amount 
 			PaymentID string `json:"payment_id"`
 		} `json:"data"`
 	}
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "decode failed")
+		return "", err
+	}
 
 	span.SetAttributes(attribute.String("payment_id", result.Data.PaymentID))
 	return result.Data.PaymentID, nil
 }
 
-func (s *OrderService) CreateOrder(ctx context.Context, userID, productID uint, quantity int, token string) (*models.Order, error) {
+// --- Public API used by handlers ---
+
+// CreateOrder creates a new order from a request.
+func (s *OrderService) CreateOrder(ctx context.Context, userID string, req *models.CreateOrderRequest) (*models.Order, error) {
 	ctx, span := s.tracer.Start(ctx, "CreateOrder")
 	defer span.End()
 
 	span.SetAttributes(
-		attribute.Int("user_id", int(userID)),
-		attribute.Int("product_id", int(productID)),
-		attribute.Int("quantity", quantity),
+		attribute.String("user_id", userID),
+		attribute.Int("item_count", len(req.Items)),
 	)
 
 	start := time.Now()
@@ -203,23 +188,52 @@ func (s *OrderService) CreateOrder(ctx context.Context, userID, productID uint, 
 		metrics.OrderDuration.Observe(time.Since(start).Seconds())
 	}()
 
-	// 1. Check stock
-	available, err := s.CheckStock(ctx, productID, quantity)
-	if err != nil || !available {
+	if len(req.Items) == 0 {
+		err := errors.New("order must contain at least one item")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "validation error")
 		metrics.OrdersFailed.Inc()
-		span.RecordError(errors.New("insufficient stock"))
-		span.SetStatus(codes.Error, "insufficient stock")
-		return nil, errors.New("insufficient stock")
+		return nil, err
 	}
 
-	// 2. Create order
-	order := &models.Order{
-		UserID:      userID,
-		ProductID:   productID,
-		Quantity:    quantity,
-		Status:      "PENDING",
-		TotalAmount: 99.99,
+	// 1) Stock check & total amount
+	var total float64
+	for _, item := range req.Items {
+		ok, err := s.CheckStock(ctx, item.ProductID, item.Quantity)
+		if err != nil {
+			metrics.OrdersFailed.Inc()
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "stock check failed")
+			return nil, err
+		}
+		if !ok {
+			err := fmt.Errorf("insufficient stock for product %s", item.ProductID)
+			metrics.OrdersFailed.Inc()
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "insufficient stock")
+			return nil, err
+		}
+		total += float64(item.Quantity) * item.Price
 	}
+
+	// 2) Create order model
+	order := &models.Order{
+		UserID:          userID,
+		Status:          "pending",
+		TotalAmount:     total,
+		ShippingAddress: req.ShippingAddress,
+		BillingAddress:  req.BillingAddress,
+	}
+
+	for _, itemReq := range req.Items {
+		order.Items = append(order.Items, models.OrderItem{
+			ProductID: itemReq.ProductID,
+			Quantity:  itemReq.Quantity,
+			Price:     itemReq.Price,
+		})
+	}
+
+	// 3) Save order in DB
 	if err := s.repo.Create(ctx, order); err != nil {
 		metrics.OrdersFailed.Inc()
 		span.RecordError(err)
@@ -227,71 +241,150 @@ func (s *OrderService) CreateOrder(ctx context.Context, userID, productID uint, 
 		return nil, err
 	}
 
-	span.SetAttributes(attribute.Int("order_id", int(order.ID)))
+	span.SetAttributes(
+		attribute.String("order_id", order.ID.String()),
+		attribute.Float64("total_amount", order.TotalAmount),
+	)
 
-	// 3. Process payment
-	paymentID, err := s.ProcessPayment(ctx, order.ID, order.TotalAmount)
+	// 4) Process payment
+	paymentID, err := s.ProcessPayment(ctx, order.ID.String(), order.TotalAmount)
 	if err != nil {
-		order.Status = "CANCELLED"
-		s.repo.Update(ctx, order)
+		order.Status = "cancelled"
+		_ = s.repo.Update(ctx, order)
 		metrics.OrdersFailed.Inc()
+		span.RecordError(err)
 		span.SetStatus(codes.Error, "payment failed")
 		return nil, err
 	}
+	order.PaymentID = &paymentID
 
-	// 4. Update stock
-	if err := s.UpdateStock(ctx, productID, quantity, token); err != nil {
-		order.Status = "CANCELLED"
-		s.repo.Update(ctx, order)
+	// 5) Update stock for each item
+	for _, item := range order.Items {
+		if err := s.UpdateStock(ctx, item.ProductID, item.Quantity); err != nil {
+			order.Status = "cancelled"
+			_ = s.repo.Update(ctx, order)
+			metrics.OrdersFailed.Inc()
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "stock update failed")
+			return nil, err
+		}
+	}
+
+	// 6) Final status
+	order.Status = "processing"
+	if err := s.repo.Update(ctx, order); err != nil {
 		metrics.OrdersFailed.Inc()
-		span.SetStatus(codes.Error, "stock update failed")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "order update failed")
 		return nil, err
 	}
 
-	// 5. Complete order
-	order.Status = "COMPLETED"
-	order.PaymentID = &paymentID
-	s.repo.Update(ctx, order)
-
 	metrics.OrdersCreated.Inc()
-	span.SetStatus(codes.Ok, "order completed")
+	span.SetStatus(codes.Ok, "order created")
 	return order, nil
 }
 
-func (s *OrderService) GetOrderByID(ctx context.Context, id uint) (*models.Order, error) {
-	ctx, span := s.tracer.Start(ctx, "GetOrderByID")
-	defer span.End()
-	span.SetAttributes(attribute.Int("order_id", int(id)))
-
-	return s.repo.GetByID(ctx, id)
-}
-
-func (s *OrderService) GetOrdersByUser(ctx context.Context, userID uint) ([]*models.Order, error) {
-	ctx, span := s.tracer.Start(ctx, "GetOrdersByUser")
-	defer span.End()
-	span.SetAttributes(attribute.Int("user_id", int(userID)))
-
-	return s.repo.GetByUserID(ctx, userID)
-}
-
-func (s *OrderService) GetAllOrders(ctx context.Context) ([]*models.Order, error) {
-	ctx, span := s.tracer.Start(ctx, "GetAllOrders")
+// GetOrder returns a single order for a user.
+func (s *OrderService) GetOrder(ctx context.Context, orderID, userID string) (*models.Order, error) {
+	ctx, span := s.tracer.Start(ctx, "GetOrder")
 	defer span.End()
 
-	return s.repo.GetAll(ctx)
+	span.SetAttributes(
+		attribute.String("order_id", orderID),
+		attribute.String("user_id", userID),
+	)
+
+	order, err := s.repo.GetByIDAndUser(ctx, orderID, userID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "order not found")
+		return nil, err
+	}
+
+	span.SetStatus(codes.Ok, "order fetched")
+	return order, nil
 }
 
-func (s *OrderService) CancelOrder(ctx context.Context, id uint) error {
+// GetUserOrders returns all orders for a given user.
+func (s *OrderService) GetUserOrders(ctx context.Context, userID string) ([]*models.Order, error) {
+	ctx, span := s.tracer.Start(ctx, "GetUserOrders")
+	defer span.End()
+
+	span.SetAttributes(attribute.String("user_id", userID))
+
+	orders, err := s.repo.GetByUserID(ctx, userID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "fetch user orders failed")
+		return nil, err
+	}
+
+	span.SetAttributes(attribute.Int("order_count", len(orders)))
+	span.SetStatus(codes.Ok, "orders fetched")
+	return orders, nil
+}
+
+// UpdateOrderStatus updates the status of an order for a user.
+func (s *OrderService) UpdateOrderStatus(ctx context.Context, orderID, userID, status string) (*models.Order, error) {
+	ctx, span := s.tracer.Start(ctx, "UpdateOrderStatus")
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("order_id", orderID),
+		attribute.String("user_id", userID),
+		attribute.String("new_status", status),
+	)
+
+	order, err := s.repo.GetByIDAndUser(ctx, orderID, userID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "order not found")
+		return nil, err
+	}
+
+	order.Status = status
+	if err := s.repo.Update(ctx, order); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "status update failed")
+		return nil, err
+	}
+
+	span.SetStatus(codes.Ok, "status updated")
+	return order, nil
+}
+
+// CancelOrder cancels an order if allowed.
+func (s *OrderService) CancelOrder(ctx context.Context, orderID, userID string) (*models.Order, error) {
 	ctx, span := s.tracer.Start(ctx, "CancelOrder")
 	defer span.End()
-	span.SetAttributes(attribute.Int("order_id", int(id)))
 
-	order, err := s.repo.GetByID(ctx, id)
+	span.SetAttributes(
+		attribute.String("order_id", orderID),
+		attribute.String("user_id", userID),
+	)
+
+	order, err := s.repo.GetByIDAndUser(ctx, orderID, userID)
 	if err != nil {
-		return err
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "order not found")
+		return nil, err
 	}
-	order.Status = "CANCELLED"
+
+	if order.Status != "pending" && order.Status != "processing" {
+		err := errors.New("only pending or processing orders can be cancelled")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "invalid status for cancellation")
+		return nil, err
+	}
+
+	order.Status = "cancelled"
+	if err := s.repo.Update(ctx, order); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "cancel update failed")
+		return nil, err
+	}
 
 	metrics.OrdersCancelled.Inc()
-	return s.repo.Update(ctx, order)
+	span.SetStatus(codes.Ok, "order cancelled")
+	return order, nil
 }

@@ -1,38 +1,33 @@
-# Build stage
-FROM rustlang/rust:nightly-alpine AS builder
+# Build stage - Nightly Rust
+FROM rustlang/rust:nightly-slim AS builder
 
 WORKDIR /app
 
 # Install build dependencies
-RUN apk add --no-cache musl-dev openssl-dev pkgconfig
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy manifests
-COPY Cargo.toml ./
-
-# Create dummy main to cache dependencies
-RUN mkdir src && echo "fn main() {}" > src/main.rs
-RUN cargo build --release
-RUN rm -rf src
-
-# Copy real source code
+# Copy source
 COPY . .
 
 # Build for release
 RUN cargo build --release
 
 # Runtime stage
-FROM alpine:latest
+FROM debian:bookworm-slim
 
 WORKDIR /app
 
 # Install runtime dependencies
-RUN apk add --no-cache libgcc
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy binary from builder
 COPY --from=builder /app/target/release/payment-service .
-
-# Copy .env if exists
-COPY .env* ./
 
 EXPOSE 8085
 

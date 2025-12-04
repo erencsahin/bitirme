@@ -26,6 +26,7 @@ INSTALLED_APPS = [
     
     # Third party apps
     'rest_framework',
+    'drf_spectacular',
     'corsheaders',
     
     # Local apps
@@ -123,15 +124,19 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # REST Framework
 REST_FRAMEWORK = {
-    'DEFAULT_PAGINATION_CLASS': 'core.pagination.StandardPagination',
-    'PAGE_SIZE': 20,
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
     ],
     'DEFAULT_PARSER_CLASSES': [
         'rest_framework.parsers.JSONParser',
     ],
-    'EXCEPTION_HANDLER': 'core.exceptions.custom_exception_handler',
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_PAGINATION_CLASS': 'core.pagination.StandardPagination',
+    'PAGE_SIZE': 10,
+    'DEFAULT_FILTER_BACKENDS': [
+        'rest_framework.filters.SearchFilter',
+        'rest_framework.filters.OrderingFilter',
+    ],
 }
 
 # CORS Settings
@@ -180,3 +185,71 @@ OTEL_EXPORTER_OTLP_ENDPOINT = config(
     default='http://localhost:4318'
 )
 OTEL_SERVICE_NAME = config('OTEL_SERVICE_NAME', default=SERVICE_NAME)
+
+# DRF Spectacular (Swagger) Settings
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Product Service API',
+    'DESCRIPTION': '''
+    Microservices Product & Inventory Management API
+    
+    This service handles:
+    - Product catalog management
+    - Stock and inventory tracking
+    - Category management
+    - Product search and filtering
+    
+    Authentication: Bearer JWT token from User Service (optional for most endpoints)
+    ''',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SCHEMA_PATH_PREFIX': r'/api',
+    'CONTACT': {
+        'name': 'Eren',
+        'email': 'eren@example.com',
+    },
+    'LICENSE': {
+        'name': 'MIT License',
+    },
+    'SERVERS': [
+        {
+            'url': 'http://localhost:8000',
+            'description': 'Development server'
+        },
+    ],
+    'TAGS': [
+        {
+            'name': 'Health',
+            'description': 'Health check and service status endpoints'
+        },
+        {
+            'name': 'Products',
+            'description': 'Product catalog management operations'
+        },
+        {
+            'name': 'Categories',
+            'description': 'Product category management'
+        },
+    ],
+    'APPEND_COMPONENTS': {
+        'securitySchemes': {
+            'BearerAuth': {
+                'type': 'http',
+                'scheme': 'bearer',
+                'bearerFormat': 'JWT',
+                'description': 'JWT token from User Service (optional)'
+            }
+        }
+    },
+    'SWAGGER_UI_SETTINGS': {
+        'deepLinking': True,
+        'persistAuthorization': True,
+        'displayOperationId': False,
+        'filter': True,
+        'docExpansion': 'none',
+        'defaultModelsExpandDepth': 2,
+        'defaultModelExpandDepth': 2,
+    },
+    'SERVE_PERMISSIONS': ['rest_framework.permissions.AllowAny'],
+    'AUTHENTICATION_WHITELIST': [],
+}

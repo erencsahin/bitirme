@@ -1,0 +1,382 @@
+basePath: /api
+definitions:
+  internal_handler.HealthResponse:
+    properties:
+      database:
+        example: connected
+        type: string
+      service:
+        example: order-service
+        type: string
+      status:
+        example: ok
+        type: string
+      timestamp:
+        example: "2025-12-04T15:30:00Z"
+        type: string
+    type: object
+  order-service_internal_models.CreateOrderRequest:
+    type: object
+  order-service_internal_models.ErrorResponse:
+    properties:
+      error:
+        example: 'validation error: field is required'
+        type: string
+      message:
+        example: Invalid request
+        type: string
+      status:
+        example: error
+        type: string
+    type: object
+  order-service_internal_models.Order:
+    properties:
+      billing_address:
+        example: 123 Tech Street, Istanbul, Turkey
+        type: string
+      created_at:
+        example: "2025-12-04T15:30:00Z"
+        type: string
+      id:
+        example: 123e4567-e89b-12d3-a456-426614174000
+        type: string
+      items:
+        items:
+          $ref: '#/definitions/order-service_internal_models.OrderItem'
+        type: array
+      shipping_address:
+        example: 123 Tech Street, Istanbul, Turkey
+        type: string
+      status:
+        example: pending
+        type: string
+      total_amount:
+        example: 3499.99
+        type: number
+      updated_at:
+        example: "2025-12-04T15:30:00Z"
+        type: string
+      user_id:
+        example: user-123e4567
+        type: string
+    type: object
+  order-service_internal_models.OrderItem:
+    properties:
+      created_at:
+        type: string
+      id:
+        example: item-123e4567
+        type: string
+      order_id:
+        example: 123e4567-e89b-12d3-a456-426614174000
+        type: string
+      price:
+        example: 1749.99
+        type: number
+      product_id:
+        example: prod-123e4567-e89b-12d3-a456-426614174000
+        type: string
+      quantity:
+        example: 2
+        type: integer
+    type: object
+  order-service_internal_models.OrderItemRequest:
+    properties:
+      price:
+        example: 1749.99
+        type: number
+      product_id:
+        example: 123e4567-e89b-12d3-a456-426614174000
+        type: string
+      quantity:
+        example: 2
+        minimum: 1
+        type: integer
+    required:
+    - price
+    - product_id
+    - quantity
+    type: object
+  order-service_internal_models.OrderListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/order-service_internal_models.Order'
+        type: array
+      status:
+        example: success
+        type: string
+    type: object
+  order-service_internal_models.OrderResponse:
+    properties:
+      data:
+        $ref: '#/definitions/order-service_internal_models.Order'
+      message:
+        example: Order created successfully
+        type: string
+      status:
+        example: success
+        type: string
+    type: object
+  order-service_internal_models.UpdateStatusRequest:
+    properties:
+      status:
+        enum:
+        - pending
+        - processing
+        - shipped
+        - delivered
+        - cancelled
+        example: processing
+        type: string
+    required:
+    - status
+    type: object
+host: localhost:8003
+info:
+  contact:
+    email: eren@example.com
+    name: Eren
+  description: Microservices Order Management API - Handles order creation, management,
+    and status tracking
+  title: Order Service API
+  version: "1.0"
+paths:
+  /api/health:
+    get:
+      consumes:
+      - application/json
+      description: Returns the health status of the Order Service including database
+        connectivity
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Service is healthy
+          schema:
+            $ref: '#/definitions/internal_handler.HealthResponse'
+        "503":
+          description: Service is degraded or unavailable
+          schema:
+            $ref: '#/definitions/internal_handler.HealthResponse'
+      summary: Health check endpoint
+      tags:
+      - Health
+  /health:
+    get:
+      consumes:
+      - application/json
+      description: Returns the health status of the Order Service including database
+        connectivity
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Service is healthy
+          schema:
+            $ref: '#/definitions/internal_handler.HealthResponse'
+        "503":
+          description: Service is degraded or unavailable
+          schema:
+            $ref: '#/definitions/internal_handler.HealthResponse'
+      summary: Health check endpoint
+      tags:
+      - Health
+  /orders:
+    post:
+      consumes:
+      - application/json
+      description: Create a new order with items. Requires authentication.
+      parameters:
+      - description: Order creation details
+        in: body
+        name: order
+        required: true
+        schema:
+          $ref: '#/definitions/order-service_internal_models.CreateOrderRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Order created successfully
+          schema:
+            $ref: '#/definitions/order-service_internal_models.OrderResponse'
+        "400":
+          description: Invalid request body
+          schema:
+            $ref: '#/definitions/order-service_internal_models.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/order-service_internal_models.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/order-service_internal_models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create a new order
+      tags:
+      - Orders
+  /orders/{id}:
+    get:
+      consumes:
+      - application/json
+      description: Retrieve detailed information about a specific order
+      parameters:
+      - description: Order ID (UUID)
+        example: '"123e4567-e89b-12d3-a456-426614174000"'
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Order details
+          schema:
+            $ref: '#/definitions/order-service_internal_models.OrderResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/order-service_internal_models.ErrorResponse'
+        "404":
+          description: Order not found
+          schema:
+            $ref: '#/definitions/order-service_internal_models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get order by ID
+      tags:
+      - Orders
+  /orders/{id}/cancel:
+    post:
+      consumes:
+      - application/json
+      description: Cancel an existing order. Only orders with status 'pending' or
+        'processing' can be cancelled
+      parameters:
+      - description: Order ID (UUID)
+        example: '"123e4567-e89b-12d3-a456-426614174000"'
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Order cancelled successfully
+          schema:
+            $ref: '#/definitions/order-service_internal_models.OrderResponse'
+        "400":
+          description: Cannot cancel order (wrong status)
+          schema:
+            $ref: '#/definitions/order-service_internal_models.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/order-service_internal_models.ErrorResponse'
+        "404":
+          description: Order not found
+          schema:
+            $ref: '#/definitions/order-service_internal_models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Cancel an order
+      tags:
+      - Orders
+  /orders/{id}/status:
+    patch:
+      consumes:
+      - application/json
+      description: 'Update the status of an existing order. Valid statuses: pending,
+        processing, shipped, delivered, cancelled'
+      parameters:
+      - description: Order ID (UUID)
+        example: '"123e4567-e89b-12d3-a456-426614174000"'
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: New status information
+        in: body
+        name: status
+        required: true
+        schema:
+          $ref: '#/definitions/order-service_internal_models.UpdateStatusRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Status updated successfully
+          schema:
+            $ref: '#/definitions/order-service_internal_models.OrderResponse'
+        "400":
+          description: Invalid status or request
+          schema:
+            $ref: '#/definitions/order-service_internal_models.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/order-service_internal_models.ErrorResponse'
+        "404":
+          description: Order not found
+          schema:
+            $ref: '#/definitions/order-service_internal_models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update order status
+      tags:
+      - Orders
+  /orders/my-orders:
+    get:
+      consumes:
+      - application/json
+      description: Retrieve all orders for the authenticated user with pagination
+      parameters:
+      - default: 1
+        description: Page number
+        example: 1
+        in: query
+        name: page
+        type: integer
+      - default: 10
+        description: Items per page
+        example: 10
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of orders
+          schema:
+            $ref: '#/definitions/order-service_internal_models.OrderListResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/order-service_internal_models.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/order-service_internal_models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get current user's orders
+      tags:
+      - Orders
+securityDefinitions:
+  BearerAuth:
+    description: 'Enter your JWT token in the format: Bearer <token>'
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
+tags:
+- description: Health check and service status endpoints
+  name: Health
+- description: Order management operations
+  name: Orders

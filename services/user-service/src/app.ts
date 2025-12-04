@@ -1,20 +1,22 @@
-import express, { Application } from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
-import { config } from './config';
-import { errorHandler, notFoundHandler } from './middleware/error.middleware';
-import { requestLogger } from './middleware/logging.middleware';
-import { createHealthRouter } from './routes/health.routes';
-import { createAuthRouter } from './routes/auth.routes';
-import { createUserRouter } from './routes/user.routes';
-import { UserRepository } from './repositories/user.repository';
-import { SessionRepository } from './repositories/session.repository';
-import { UserService } from './services/user.service';
-import { AuthService } from './services/auth.service';
-import { UserController } from './controllers/user.controller';
-import { AuthController } from './controllers/auth.controller';
-import { CacheService, getRedisClient } from './config/redis';
+import express, { Application } from "express";
+import cors from "cors";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
+import { config } from "./config";
+import swaggerUi from "swagger-ui-express";
+import { swaggerSpec } from "./config/swagger";
+import { errorHandler, notFoundHandler } from "./middleware/error.middleware";
+import { requestLogger } from "./middleware/logging.middleware";
+import { createHealthRouter } from "./routes/health.routes";
+import { createAuthRouter } from "./routes/auth.routes";
+import { createUserRouter } from "./routes/user.routes";
+import { UserRepository } from "./repositories/user.repository";
+import { SessionRepository } from "./repositories/session.repository";
+import { UserService } from "./services/user.service";
+import { AuthService } from "./services/auth.service";
+import { UserController } from "./controllers/user.controller";
+import { AuthController } from "./controllers/auth.controller";
+import { CacheService, getRedisClient } from "./config/redis";
 
 export function createApp(): Application {
   const app = express();
@@ -33,14 +35,14 @@ export function createApp(): Application {
     windowMs: config.rateLimit.windowMs,
     max: config.rateLimit.maxRequests,
     message: {
-      status: 'error',
+      status: "error",
       error: {
-        code: 'RATE_LIMIT_EXCEEDED',
-        message: 'Too many requests, please try again later',
+        code: "RATE_LIMIT_EXCEEDED",
+        message: "Too many requests, please try again later",
       },
     },
   });
-  app.use('/api', limiter);
+  app.use("/api", limiter);
 
   // Body parsing middleware
   app.use(express.json());
@@ -63,12 +65,26 @@ export function createApp(): Application {
   const userController = new UserController(userService);
   const authController = new AuthController(authService);
 
-  // Routes
-  app.use('/', createHealthRouter());
-  app.use('/api/auth', createAuthRouter(authController));
-  app.use('/api/users', createUserRouter(userController));
+  // Swagger Documentation - MUST BE BEFORE ROUTES
+  app.use(
+    "/api-docs",
+    swaggerUi.serve,
+    swaggerUi.setup(swaggerSpec, {
+      explorer: true,
+      customCss: ".swagger-ui .topbar { display: none }",
+      customSiteTitle: "User Service API",
+      swaggerOptions: {
+        persistAuthorization: true,
+      },
+    })
+  );
 
-  // Error handling
+  // Routes
+  app.use("/", createHealthRouter());
+  app.use("/api/auth", createAuthRouter(authController));
+  app.use("/api/users", createUserRouter(userController));
+
+  // Error handlers - MUST BE LAST
   app.use(notFoundHandler);
   app.use(errorHandler);
 

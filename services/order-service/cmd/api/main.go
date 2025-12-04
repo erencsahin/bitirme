@@ -1,90 +1,119 @@
 package main
 
 import (
-	"context"
 	"log"
-	"time"
+	"os"
 
 	"order-service/internal/config"
 	"order-service/internal/handler"
 	"order-service/internal/models"
 	"order-service/internal/repository"
 	"order-service/internal/service"
-	"order-service/internal/telemetry"
 
 	"github.com/gin-gonic/gin"
-	"github.com/joho/godotenv"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
+
+	_ "order-service/docs"
 )
 
-func main() {
-	godotenv.Load()
+// @title Order Service API
+// @version 1.0
+// @description Microservices Order Management API - Handles order creation, management, and status tracking
 
+// @contact.name Eren
+// @contact.email eren@example.com
+
+// @host localhost:8003
+// @BasePath /api
+
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description Enter your JWT token in the format: Bearer <token>
+
+// @tag.name Health
+// @tag.description Health check and service status endpoints
+
+// @tag.name Orders
+// @tag.description Order management operations
+
+func main() {
+	// Load configuration
 	cfg := config.Load()
 
-	// Initialize OpenTelemetry
-	shutdown, err := telemetry.InitTracer(cfg.ServiceName, cfg.OTELEndpoint)
-	if err != nil {
-		log.Printf("⚠️  OpenTelemetry init failed: %v (continuing without tracing)", err)
-	} else {
-		defer func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := shutdown(ctx); err != nil {
-				log.Printf("Error shutting down tracer: %v", err)
-			}
-		}()
-		log.Println("✅ OpenTelemetry initialized")
-	}
-
-	// Database
+	// Connect to database
 	db, err := gorm.Open(postgres.Open(cfg.DatabaseURL), &gorm.Config{})
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	db.AutoMigrate(&models.Order{})
 
-	// Services
-	repo := repository.New(db)
-	svc := service.New(repo, cfg)
-	h := handler.New(svc)
+	// Auto migrate
+	if err := db.AutoMigrate(&models.Order{}, &models.OrderItem{}); err != nil {
+		log.Fatalf("Failed to migrate database: %v", err)
+	}
 
-	r := gin.Default()
+	// Initialize repositories
+	orderRepo := repository.New(db)
 
-	// CORS
-	r.Use(func(c *gin.Context) {
+	// Initialize services
+	orderService := service.New(orderRepo, cfg)
+
+	// Initialize handlers
+	orderHandler := handler.NewOrderHandler(orderService)
+	healthHandler := handler.NewHealthHandler(db)
+
+	// Setup Gin router
+	router := gin.Default()
+
+	// CORS middleware
+	router.Use(func(c *gin.Context) {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type,Authorization")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return
 		}
+
 		c.Next()
 	})
 
-	// Metrics endpoint
-	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+	// Public routes (no auth required)
+	router.GET("/health", healthHandler.Health)
+	router.GET("/api/health", healthHandler.Health)
 
-	// API routes
-	api := r.Group("/api")
+	// Swagger documentation
+	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+
+	// API routes (authentication required)
+	api := router.Group("/api")
+	// Note: Add auth middleware here if you have one
+	// api.Use(middleware.AuthMiddleware(cfg.UserServiceURL))
 	{
-		api.GET("/health", h.Health)
-		orders := api.Group("/orders")
-		{
-			orders.POST("", h.CreateOrder)
-			orders.GET("", h.GetAllOrders)
-			orders.GET("/:id", h.GetOrder)
-			orders.GET("/user/:user_id", h.GetUserOrders)
-			orders.PUT("/:id/cancel", h.CancelOrder)
-		}
+		// Order routes
+		api.POST("/orders", orderHandler.CreateOrder)
+		api.GET("/orders/:id", orderHandler.GetOrder)
+		api.GET("/orders/my-orders", orderHandler.GetMyOrders)
+		api.PATCH("/orders/:id/status", orderHandler.UpdateOrderStatus)
+		api.POST("/orders/:id/cancel", orderHandler.CancelOrder)
 	}
 
-	log.Printf("🚀 Order Service on port %s", cfg.Port)
-	log.Printf("📊 Metrics: http://localhost:%s/metrics", cfg.Port)
-	log.Printf("🔍 Traces: %s", cfg.OTELEndpoint)
+	// Start server
+	port := os.Getenv("SERVER_PORT")
+	if port == "" {
+		port = "8003"
+	}
 
-	r.Run(":" + cfg.Port)
+	log.Printf("🚀 Order Service starting on port %s", port)
+	log.Printf("📚 Swagger UI: http://localhost:%s/swagger/index.html", port)
+	log.Printf("💚 Health Check: http://localhost:%s/health", port)
+
+	if err := router.Run(":" + port); err != nil {
+		log.Fatalf("Failed to start server: %v", err)
+	}
 }
