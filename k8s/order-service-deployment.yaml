@@ -1,0 +1,86 @@
+﻿apiVersion: v1
+kind: Service
+metadata:
+  name: order-service
+  namespace: microservices
+  labels:
+    app: order-service
+spec:
+  type: NodePort
+  ports:
+    - port: 8003
+      targetPort: 8003
+      nodePort: 30003
+      protocol: TCP
+      name: http
+  selector:
+    app: order-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service
+  namespace: microservices
+  labels:
+    app: order-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: order-service
+  template:
+    metadata:
+      labels:
+        app: order-service
+    spec:
+      # nodeSelector kaldırıldı - tüm node'larda çalışabilir
+      containers:
+      - name: order-service
+        image: order-service:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8003
+        env:
+        - name: SERVER_PORT
+          value: "8003"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: service-secrets
+              key: DATABASE_URL_ORDER
+        - name: USER_SERVICE_URL
+          value: "http://user-service:8001"
+        - name: PRODUCT_SERVICE_URL
+          value: "http://product-service:8000"
+        - name: PAYMENT_SERVICE_URL
+          value: "http://payment-service:8085"
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "http://otel-collector:4318"
+        - name: OTEL_SERVICE_NAME
+          value: "order-service"
+        - name: OTEL_RESOURCE_ATTRIBUTES
+          value: "service.name=order-service,service.version=1.0.0,deployment.environment=production"
+        - name: ENVIRONMENT
+          value: "production"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8003
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8003
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          timeoutSeconds: 3
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"

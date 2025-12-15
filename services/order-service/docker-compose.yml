@@ -17,7 +17,8 @@ services:
       - PRODUCT_SERVICE_URL=http://django-service:8000
       - PAYMENT_SERVICE_URL=http://payment-service:8085  # ← DÜZELTİLDİ (container ismi)
       - JWT_SECRET=your-secret-key
-      - OTEL_ENDPOINT=localhost:4317
+      - OTEL_ENDPOINT=otel-collector:4317
+      - OTEL_SERVICE_NAME=order-service
       - SERVICE_NAME=order-service
     depends_on:
       order-postgres:

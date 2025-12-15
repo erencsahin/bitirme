@@ -1,0 +1,102 @@
+﻿apiVersion: v1
+kind: Service
+metadata:
+  name: product-service
+  namespace: microservices
+  labels:
+    app: product-service
+spec:
+  type: NodePort
+  ports:
+    - port: 8000
+      targetPort: 8000
+      nodePort: 30000
+      protocol: TCP
+      name: http
+  selector:
+    app: product-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: product-service
+  namespace: microservices
+  labels:
+    app: product-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: product-service
+  template:
+    metadata:
+      labels:
+        app: product-service
+    spec:
+      # nodeSelector kaldırıldı - tüm node'larda çalışabilir
+      containers:
+      - name: product-service
+        image: product-service:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+        env:
+        - name: DEBUG
+          value: "False"
+        - name: DJANGO_SETTINGS_MODULE
+          value: "config.settings"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: service-secrets
+              key: DATABASE_URL_PRODUCT
+        - name: DB_HOST
+          value: "product-postgres"
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_NAME
+          value: "products_db"
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: db-secrets
+              key: POSTGRES_USER
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-secrets
+              key: POSTGRES_PASSWORD
+        - name: REDIS_HOST
+          value: "product-redis"
+        - name: REDIS_PORT
+          value: "6379"
+        - name: USER_SERVICE_URL
+          value: "http://user-service:8001"
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "http://otel-collector:4318/v1/traces"
+        - name: OTEL_SERVICE_NAME
+          value: "product-service"
+        - name: OTEL_RESOURCE_ATTRIBUTES
+          value: "service.name=product-service,service.version=1.0.0,deployment.environment=production"
+        livenessProbe:
+          httpGet:
+            path: /health/
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health/
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          timeoutSeconds: 3
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"

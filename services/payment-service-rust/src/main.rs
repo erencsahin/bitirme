@@ -5,6 +5,7 @@ mod handlers;
 mod middleware;
 mod models;
 mod services;
+mod telemetry;
 
 use axum::{
     routing::{get, post},
@@ -21,13 +22,8 @@ async fn main() -> anyhow::Result<()> {
     // Load environment variables
     dotenv::dotenv().ok();
 
-    // Initialize tracing
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::new(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()),
-        ))
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    // Initialize OpenTelemetry tracing
+    telemetry::init_telemetry()?;
 
     // Load configuration
     let config = Arc::new(Config::from_env()?);

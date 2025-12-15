@@ -21,6 +21,8 @@ services:
       JWT_REFRESH_EXPIRES_IN: 7d
       LOG_LEVEL: info
       CORS_ORIGIN: http://localhost:3000
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: user-service
     depends_on:
       postgres-user:
         condition: service_healthy

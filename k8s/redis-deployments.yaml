@@ -1,0 +1,119 @@
+﻿# User Service Redis
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-redis
+  namespace: microservices
+spec:
+  ports:
+    - port: 6379
+  selector:
+    app: user-redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-redis
+  namespace: microservices
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: user-redis
+  template:
+    metadata:
+      labels:
+        app: user-redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+---
+# Product Service Redis
+apiVersion: v1
+kind: Service
+metadata:
+  name: product-redis
+  namespace: microservices
+spec:
+  ports:
+    - port: 6379
+  selector:
+    app: product-redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: product-redis
+  namespace: microservices
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: product-redis
+  template:
+    metadata:
+      labels:
+        app: product-redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+---
+# Payment Service Redis
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-redis
+  namespace: microservices
+spec:
+  ports:
+    - port: 6379
+  selector:
+    app: payment-redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-redis
+  namespace: microservices
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment-redis
+  template:
+    metadata:
+      labels:
+        app: payment-redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"

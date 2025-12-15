@@ -6,9 +6,11 @@ import (
 
 	"order-service/internal/config"
 	"order-service/internal/handler"
+	"order-service/internal/middleware"
 	"order-service/internal/models"
 	"order-service/internal/repository"
 	"order-service/internal/service"
+	"order-service/internal/tracing"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/postgres"
@@ -42,6 +44,10 @@ import (
 // @tag.description Order management operations
 
 func main() {
+	// Initialize OpenTelemetry tracing
+	cleanup := tracing.InitTracer()
+	defer cleanup()
+
 	// Load configuration
 	cfg := config.Load()
 
@@ -68,6 +74,9 @@ func main() {
 
 	// Setup Gin router
 	router := gin.Default()
+
+	// Add tracing middleware
+	router.Use(middleware.TracingMiddleware())
 
 	// CORS middleware
 	router.Use(func(c *gin.Context) {
