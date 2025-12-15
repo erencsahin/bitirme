@@ -10,10 +10,12 @@ use axum::{
 use std::sync::Arc;
 use uuid::Uuid;
 
+#[tracing::instrument(name = "create_payment", skip(state))]
 pub async fn create_payment(
     State(state): State<Arc<AppState>>,
     Json(request): Json<CreatePaymentRequest>,
 ) -> Result<Json<ApiResponse<PaymentResponse>>, StatusCode> {
+    tracing::info!("Creating payment for order: {}", request.order_id);
     let payment = payment_service::create_payment(&state.db_pool, request)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -30,6 +32,7 @@ pub async fn create_payment(
         created_at: payment.created_at.to_rfc3339(),
         updated_at: payment.updated_at.to_rfc3339(),
     };
+    
 
     Ok(Json(ApiResponse::success(response)))
 }

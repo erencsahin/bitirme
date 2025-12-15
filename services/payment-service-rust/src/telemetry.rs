@@ -9,7 +9,6 @@ use std::time::Duration;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 pub fn init_telemetry() -> anyhow::Result<()> {
-    // Get configuration from environment
     let service_name = std::env::var("OTEL_SERVICE_NAME")
         .unwrap_or_else(|_| "payment-service".to_string());
     
@@ -22,7 +21,7 @@ pub fn init_telemetry() -> anyhow::Result<()> {
     let otlp_endpoint = std::env::var("OTEL_ENDPOINT")
         .unwrap_or_else(|_| "http://localhost:4317".to_string());
 
-    // Create OTLP exporter
+    // Create OTLP tracer
     let tracer = opentelemetry_otlp::new_pipeline()
         .tracing()
         .with_exporter(
@@ -43,16 +42,13 @@ pub fn init_telemetry() -> anyhow::Result<()> {
         )
         .install_batch(runtime::Tokio)?;
 
-    // Set global tracer provider
-    global::set_tracer_provider(tracer.provider().unwrap());
-
     // Initialize tracing subscriber with OpenTelemetry layer
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(
             std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()),
         ))
         .with(tracing_subscriber::fmt::layer())
-        .with(tracing_opentelemetry::layer())
+        .with(tracing_opentelemetry::layer().with_tracer(tracer))
         .init();
 
     tracing::info!("✅ OpenTelemetry initialized for {}", service_name);

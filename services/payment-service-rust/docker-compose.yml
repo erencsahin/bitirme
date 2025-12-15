@@ -51,7 +51,7 @@ services:
       - JWT_SECRET=your-secret-key-min-32-chars-long-for-security
       - USER_SERVICE_URL=http://user-service:8001  # ← DÜZELTİLDİ
       - RUST_LOG=info
-      - OTEL_ENDPOINT=otel-collector:4317
+      - OTEL_ENDPOINT=http://otel-collector:4317
       - OTEL_SERVICE_NAME=payment-service
       - SERVICE_VERSION=1.0.0
       - ENVIRONMENT=development

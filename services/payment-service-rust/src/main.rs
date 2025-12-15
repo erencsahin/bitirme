@@ -14,7 +14,7 @@ use axum::{
 use config::Config;
 use services::user_client::UserServiceClient;
 use std::sync::Arc;
-use tower_http::cors::CorsLayer;
+use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -57,6 +57,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/payments", post(handlers::payment::create_payment))
         .route("/api/payments/:id", get(handlers::payment::get_payment))
         .route("/api/payments/order/:order_id", get(handlers::payment::get_payment_by_order))
+        .layer(TraceLayer::new_for_http())  // ← BU SATIRI EKLE
         .layer(CorsLayer::permissive())
         .with_state(app_state);
 
