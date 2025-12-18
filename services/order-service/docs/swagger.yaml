@@ -1,6 +1,6 @@
 basePath: /api
 definitions:
-  internal_handler.HealthResponse:
+  handler.HealthResponse:
     properties:
       database:
         example: connected
@@ -15,9 +15,9 @@ definitions:
         example: "2025-12-04T15:30:00Z"
         type: string
     type: object
-  order-service_internal_models.CreateOrderRequest:
+  models.CreateOrderRequest:
     type: object
-  order-service_internal_models.ErrorResponse:
+  models.ErrorResponse:
     properties:
       error:
         example: 'validation error: field is required'
@@ -29,7 +29,7 @@ definitions:
         example: error
         type: string
     type: object
-  order-service_internal_models.Order:
+  models.Order:
     properties:
       billing_address:
         example: 123 Tech Street, Istanbul, Turkey
@@ -42,8 +42,11 @@ definitions:
         type: string
       items:
         items:
-          $ref: '#/definitions/order-service_internal_models.OrderItem'
+          $ref: '#/definitions/models.OrderItem'
         type: array
+      payment_id:
+        example: pay_1234567890
+        type: string
       shipping_address:
         example: 123 Tech Street, Istanbul, Turkey
         type: string
@@ -60,7 +63,7 @@ definitions:
         example: user-123e4567
         type: string
     type: object
-  order-service_internal_models.OrderItem:
+  models.OrderItem:
     properties:
       created_at:
         type: string
@@ -80,7 +83,7 @@ definitions:
         example: 2
         type: integer
     type: object
-  order-service_internal_models.OrderItemRequest:
+  models.OrderItemRequest:
     properties:
       price:
         example: 1749.99
@@ -97,20 +100,20 @@ definitions:
     - product_id
     - quantity
     type: object
-  order-service_internal_models.OrderListResponse:
+  models.OrderListResponse:
     properties:
       data:
         items:
-          $ref: '#/definitions/order-service_internal_models.Order'
+          $ref: '#/definitions/models.Order'
         type: array
       status:
         example: success
         type: string
     type: object
-  order-service_internal_models.OrderResponse:
+  models.OrderResponse:
     properties:
       data:
-        $ref: '#/definitions/order-service_internal_models.Order'
+        $ref: '#/definitions/models.Order'
       message:
         example: Order created successfully
         type: string
@@ -118,7 +121,7 @@ definitions:
         example: success
         type: string
     type: object
-  order-service_internal_models.UpdateStatusRequest:
+  models.UpdateStatusRequest:
     properties:
       status:
         enum:
@@ -142,26 +145,6 @@ info:
   title: Order Service API
   version: "1.0"
 paths:
-  /api/health:
-    get:
-      consumes:
-      - application/json
-      description: Returns the health status of the Order Service including database
-        connectivity
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: Service is healthy
-          schema:
-            $ref: '#/definitions/internal_handler.HealthResponse'
-        "503":
-          description: Service is degraded or unavailable
-          schema:
-            $ref: '#/definitions/internal_handler.HealthResponse'
-      summary: Health check endpoint
-      tags:
-      - Health
   /health:
     get:
       consumes:
@@ -174,11 +157,11 @@ paths:
         "200":
           description: Service is healthy
           schema:
-            $ref: '#/definitions/internal_handler.HealthResponse'
+            $ref: '#/definitions/handler.HealthResponse'
         "503":
           description: Service is degraded or unavailable
           schema:
-            $ref: '#/definitions/internal_handler.HealthResponse'
+            $ref: '#/definitions/handler.HealthResponse'
       summary: Health check endpoint
       tags:
       - Health
@@ -193,26 +176,26 @@ paths:
         name: order
         required: true
         schema:
-          $ref: '#/definitions/order-service_internal_models.CreateOrderRequest'
+          $ref: '#/definitions/models.CreateOrderRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Order created successfully
           schema:
-            $ref: '#/definitions/order-service_internal_models.OrderResponse'
+            $ref: '#/definitions/models.OrderResponse'
         "400":
           description: Invalid request body
           schema:
-            $ref: '#/definitions/order-service_internal_models.ErrorResponse'
+            $ref: '#/definitions/models.ErrorResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/order-service_internal_models.ErrorResponse'
+            $ref: '#/definitions/models.ErrorResponse'
         "500":
           description: Internal server error
           schema:
-            $ref: '#/definitions/order-service_internal_models.ErrorResponse'
+            $ref: '#/definitions/models.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Create a new order
@@ -236,15 +219,15 @@ paths:
         "200":
           description: Order details
           schema:
-            $ref: '#/definitions/order-service_internal_models.OrderResponse'
+            $ref: '#/definitions/models.OrderResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/order-service_internal_models.ErrorResponse'
+            $ref: '#/definitions/models.ErrorResponse'
         "404":
           description: Order not found
           schema:
-            $ref: '#/definitions/order-service_internal_models.ErrorResponse'
+            $ref: '#/definitions/models.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Get order by ID
@@ -269,19 +252,19 @@ paths:
         "200":
           description: Order cancelled successfully
           schema:
-            $ref: '#/definitions/order-service_internal_models.OrderResponse'
+            $ref: '#/definitions/models.OrderResponse'
         "400":
           description: Cannot cancel order (wrong status)
           schema:
-            $ref: '#/definitions/order-service_internal_models.ErrorResponse'
+            $ref: '#/definitions/models.ErrorResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/order-service_internal_models.ErrorResponse'
+            $ref: '#/definitions/models.ErrorResponse'
         "404":
           description: Order not found
           schema:
-            $ref: '#/definitions/order-service_internal_models.ErrorResponse'
+            $ref: '#/definitions/models.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Cancel an order
@@ -305,26 +288,26 @@ paths:
         name: status
         required: true
         schema:
-          $ref: '#/definitions/order-service_internal_models.UpdateStatusRequest'
+          $ref: '#/definitions/models.UpdateStatusRequest'
       produces:
       - application/json
       responses:
         "200":
           description: Status updated successfully
           schema:
-            $ref: '#/definitions/order-service_internal_models.OrderResponse'
+            $ref: '#/definitions/models.OrderResponse'
         "400":
           description: Invalid status or request
           schema:
-            $ref: '#/definitions/order-service_internal_models.ErrorResponse'
+            $ref: '#/definitions/models.ErrorResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/order-service_internal_models.ErrorResponse'
+            $ref: '#/definitions/models.ErrorResponse'
         "404":
           description: Order not found
           schema:
-            $ref: '#/definitions/order-service_internal_models.ErrorResponse'
+            $ref: '#/definitions/models.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Update order status
@@ -354,15 +337,15 @@ paths:
         "200":
           description: List of orders
           schema:
-            $ref: '#/definitions/order-service_internal_models.OrderListResponse'
+            $ref: '#/definitions/models.OrderListResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/order-service_internal_models.ErrorResponse'
+            $ref: '#/definitions/models.ErrorResponse'
         "500":
           description: Internal server error
           schema:
-            $ref: '#/definitions/order-service_internal_models.ErrorResponse'
+            $ref: '#/definitions/models.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Get current user's orders

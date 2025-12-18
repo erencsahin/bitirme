@@ -19,6 +19,7 @@ services:
       retries: 5
     networks:
       - product-network
+      - microservices-network
     restart: unless-stopped
 
   redis:
@@ -37,6 +38,19 @@ services:
       retries: 5
     networks:
       - product-network
+    restart: unless-stopped
+
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin-common
+    environment:
+      PGADMIN_DEFAULT_EMAIL: eren@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    networks:
+      - microservices-network
     restart: unless-stopped
 
   django:

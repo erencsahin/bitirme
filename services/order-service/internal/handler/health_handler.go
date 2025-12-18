@@ -33,7 +33,6 @@ type HealthResponse struct {
 // @Success 200 {object} HealthResponse "Service is healthy"
 // @Failure 503 {object} HealthResponse "Service is degraded or unavailable"
 // @Router /health [get]
-// @Router /api/health [get]
 func (h *HealthHandler) Health(c *gin.Context) {
 	// Check database connection
 	sqlDB, err := h.db.DB()

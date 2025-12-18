@@ -18,35 +18,6 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
-        "/api/health": {
-            "get": {
-                "description": "Returns the health status of the Order Service including database connectivity",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Health"
-                ],
-                "summary": "Health check endpoint",
-                "responses": {
-                    "200": {
-                        "description": "Service is healthy",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handler.HealthResponse"
-                        }
-                    },
-                    "503": {
-                        "description": "Service is degraded or unavailable",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handler.HealthResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/health": {
             "get": {
                 "description": "Returns the health status of the Order Service including database connectivity",
@@ -64,13 +35,13 @@ const docTemplate = `{
                     "200": {
                         "description": "Service is healthy",
                         "schema": {
-                            "$ref": "#/definitions/internal_handler.HealthResponse"
+                            "$ref": "#/definitions/handler.HealthResponse"
                         }
                     },
                     "503": {
                         "description": "Service is degraded or unavailable",
                         "schema": {
-                            "$ref": "#/definitions/internal_handler.HealthResponse"
+                            "$ref": "#/definitions/handler.HealthResponse"
                         }
                     }
                 }
@@ -101,7 +72,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/order-service_internal_models.CreateOrderRequest"
+                            "$ref": "#/definitions/models.CreateOrderRequest"
                         }
                     }
                 ],
@@ -109,25 +80,25 @@ const docTemplate = `{
                     "201": {
                         "description": "Order created successfully",
                         "schema": {
-                            "$ref": "#/definitions/order-service_internal_models.OrderResponse"
+                            "$ref": "#/definitions/models.OrderResponse"
                         }
                     },
                     "400": {
                         "description": "Invalid request body",
                         "schema": {
-                            "$ref": "#/definitions/order-service_internal_models.ErrorResponse"
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/order-service_internal_models.ErrorResponse"
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/order-service_internal_models.ErrorResponse"
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -173,19 +144,19 @@ const docTemplate = `{
                     "200": {
                         "description": "List of orders",
                         "schema": {
-                            "$ref": "#/definitions/order-service_internal_models.OrderListResponse"
+                            "$ref": "#/definitions/models.OrderListResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/order-service_internal_models.ErrorResponse"
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/order-service_internal_models.ErrorResponse"
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -223,19 +194,19 @@ const docTemplate = `{
                     "200": {
                         "description": "Order details",
                         "schema": {
-                            "$ref": "#/definitions/order-service_internal_models.OrderResponse"
+                            "$ref": "#/definitions/models.OrderResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/order-service_internal_models.ErrorResponse"
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Order not found",
                         "schema": {
-                            "$ref": "#/definitions/order-service_internal_models.ErrorResponse"
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -273,25 +244,25 @@ const docTemplate = `{
                     "200": {
                         "description": "Order cancelled successfully",
                         "schema": {
-                            "$ref": "#/definitions/order-service_internal_models.OrderResponse"
+                            "$ref": "#/definitions/models.OrderResponse"
                         }
                     },
                     "400": {
                         "description": "Cannot cancel order (wrong status)",
                         "schema": {
-                            "$ref": "#/definitions/order-service_internal_models.ErrorResponse"
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/order-service_internal_models.ErrorResponse"
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Order not found",
                         "schema": {
-                            "$ref": "#/definitions/order-service_internal_models.ErrorResponse"
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -330,7 +301,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/order-service_internal_models.UpdateStatusRequest"
+                            "$ref": "#/definitions/models.UpdateStatusRequest"
                         }
                     }
                 ],
@@ -338,25 +309,25 @@ const docTemplate = `{
                     "200": {
                         "description": "Status updated successfully",
                         "schema": {
-                            "$ref": "#/definitions/order-service_internal_models.OrderResponse"
+                            "$ref": "#/definitions/models.OrderResponse"
                         }
                     },
                     "400": {
                         "description": "Invalid status or request",
                         "schema": {
-                            "$ref": "#/definitions/order-service_internal_models.ErrorResponse"
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/order-service_internal_models.ErrorResponse"
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Order not found",
                         "schema": {
-                            "$ref": "#/definitions/order-service_internal_models.ErrorResponse"
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -364,7 +335,7 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "internal_handler.HealthResponse": {
+        "handler.HealthResponse": {
             "type": "object",
             "properties": {
                 "database": {
@@ -385,10 +356,10 @@ const docTemplate = `{
                 }
             }
         },
-        "order-service_internal_models.CreateOrderRequest": {
+        "models.CreateOrderRequest": {
             "type": "object"
         },
-        "order-service_internal_models.ErrorResponse": {
+        "models.ErrorResponse": {
             "type": "object",
             "properties": {
                 "error": {
@@ -405,7 +376,7 @@ const docTemplate = `{
                 }
             }
         },
-        "order-service_internal_models.Order": {
+        "models.Order": {
             "type": "object",
             "properties": {
                 "billing_address": {
@@ -423,8 +394,12 @@ const docTemplate = `{
                 "items": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/order-service_internal_models.OrderItem"
+                        "$ref": "#/definitions/models.OrderItem"
                     }
+                },
+                "payment_id": {
+                    "type": "string",
+                    "example": "pay_1234567890"
                 },
                 "shipping_address": {
                     "type": "string",
@@ -448,7 +423,7 @@ const docTemplate = `{
                 }
             }
         },
-        "order-service_internal_models.OrderItem": {
+        "models.OrderItem": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -476,7 +451,7 @@ const docTemplate = `{
                 }
             }
         },
-        "order-service_internal_models.OrderItemRequest": {
+        "models.OrderItemRequest": {
             "type": "object",
             "required": [
                 "price",
@@ -499,13 +474,13 @@ const docTemplate = `{
                 }
             }
         },
-        "order-service_internal_models.OrderListResponse": {
+        "models.OrderListResponse": {
             "type": "object",
             "properties": {
                 "data": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/order-service_internal_models.Order"
+                        "$ref": "#/definitions/models.Order"
                     }
                 },
                 "status": {
@@ -514,11 +489,11 @@ const docTemplate = `{
                 }
             }
         },
-        "order-service_internal_models.OrderResponse": {
+        "models.OrderResponse": {
             "type": "object",
             "properties": {
                 "data": {
-                    "$ref": "#/definitions/order-service_internal_models.Order"
+                    "$ref": "#/definitions/models.Order"
                 },
                 "message": {
                     "type": "string",
@@ -530,7 +505,7 @@ const docTemplate = `{
                 }
             }
         },
-        "order-service_internal_models.UpdateStatusRequest": {
+        "models.UpdateStatusRequest": {
             "type": "object",
             "required": [
                 "status"
