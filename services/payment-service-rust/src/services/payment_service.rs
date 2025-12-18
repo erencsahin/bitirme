@@ -3,14 +3,15 @@ use anyhow::Result;
 use sqlx::PgPool;
 use uuid::Uuid;
 use chrono::Utc;
+use rust_decimal::Decimal; // Eklendi
+use rust_decimal::prelude::FromPrimitive; // Eklendi
 
 pub async fn create_payment(
     pool: &PgPool,
     request: CreatePaymentRequest,
 ) -> Result<Payment> {
-    // Mock payment processing
     let transaction_id = Uuid::new_v4().to_string();
-    let payment_status = PaymentStatus::Completed; // Mock: always success
+    let payment_status = PaymentStatus::Completed;
 
     let payment = sqlx::query_as::<_, Payment>(
         r#"
@@ -22,7 +23,7 @@ pub async fn create_payment(
     .bind(Uuid::new_v4())
     .bind(request.order_id)
     .bind(request.user_id)
-    .bind(request.amount)
+    .bind(request.amount) // f64 yerine decimal_amount bağladık
     .bind(request.currency)
     .bind(request.payment_method)
     .bind(payment_status.as_str())

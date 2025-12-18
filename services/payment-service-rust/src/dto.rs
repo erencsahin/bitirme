@@ -1,3 +1,4 @@
+use rust_decimal::Decimal; // Bunu ekledik
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -5,7 +6,7 @@ use uuid::Uuid;
 pub struct CreatePaymentRequest {
     pub order_id: Uuid,
     pub user_id: Uuid,
-    pub amount: f64,
+    pub amount: Decimal, // f64 -> Decimal yapıldı
     pub currency: String,
     pub payment_method: String,
 }
@@ -15,7 +16,7 @@ pub struct PaymentResponse {
     pub id: Uuid,
     pub order_id: Uuid,
     pub user_id: Uuid,
-    pub amount: f64,
+    pub amount: Decimal, // f64 -> Decimal yapıldı
     pub currency: String,
     pub payment_method: String,
     pub payment_status: String,
