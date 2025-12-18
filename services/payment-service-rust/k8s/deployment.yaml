@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: payment-service
+  namespace: bitirme # (opsiyonel ama tavsiye)
   labels:
     app: payment-service
 spec:
@@ -15,69 +16,80 @@ spec:
         app: payment-service
     spec:
       containers:
-      - name: payment-service
-        image: payment-service:latest
-        imagePullPolicy: IfNotPresent
-        ports:
-        - containerPort: 8085
-        env:
-        - name: PORT
-          valueFrom:
-            configMapKeyRef:
-              name: payment-configmap
-              key: PORT
-        - name: DATABASE_URL
-          value: "postgres://$(DB_USER):$(DB_PASSWORD)@postgres-service:5432/$(DB_NAME)"
-        - name: DB_USER
-          valueFrom:
-            secretKeyRef:
-              name: postgres-secret
-              key: username
-        - name: DB_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: postgres-secret
-              key: password
-        - name: DB_NAME
-          valueFrom:
-            configMapKeyRef:
-              name: payment-configmap
-              key: DB_NAME
-        - name: REDIS_URL
-          value: "redis://:$(REDIS_PASSWORD)@redis-service:6379"
-        - name: REDIS_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: redis-secret
-              key: password
-        - name: JWT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: jwt-secret
-              key: secret
-        - name: ORDER_SERVICE_URL
-          valueFrom:
-            configMapKeyRef:
-              name: payment-configmap
-              key: ORDER_SERVICE_URL
-        - name: RUST_LOG
-          value: "info"
-        resources:
-          requests:
-            memory: "256Mi"
-            cpu: "100m"
-          limits:
-            memory: "512Mi"
-            cpu: "500m"
-        livenessProbe:
-          httpGet:
-            path: /api/health
-            port: 8085
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        readinessProbe:
-          httpGet:
-            path: /api/health
-            port: 8085
-          initialDelaySeconds: 20
-          periodSeconds: 10
+        - name: payment-service
+          # Kendi image ismine göre güncelle
+          image: payment-service:v1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8085
+          env:
+            # Önce diğer env değişkenleri
+            - name: PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: payment-configmap
+                  key: PORT
+
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: password
+            - name: DB_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: payment-configmap
+                  key: DB_NAME
+
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: password
+
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: jwt-secret
+                  key: secret
+            - name: ORDER_SERVICE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: payment-configmap
+                  key: ORDER_SERVICE_URL
+
+            - name: RUST_LOG
+              value: "info"
+
+            # Bunlar en sonda olsun ki yukarıdaki env'ler expand edilebilsin
+            - name: DATABASE_URL
+              value: "postgres://$(DB_USER):$(DB_PASSWORD)@postgres-service:5432/$(DB_NAME)"
+            - name: REDIS_URL
+              value: "redis://:$(REDIS_PASSWORD)@redis-service:6379"
+
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 8085
+            initialDelaySeconds: 30
+            periodSeconds: 10
+
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8085
+            initialDelaySeconds: 20
+            periodSeconds: 10

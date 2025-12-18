@@ -22,74 +22,74 @@ spec:
         language: python
     spec:
       containers:
-      - name: django
-        image: 192.168.1.100:5000/django-service:v1
-        imagePullPolicy: Always
-        ports:
-        - containerPort: 8000
-          name: http
-        env:
-        - name: SERVICE_NAME
-          value: "django-service"
-        - name: SERVICE_VERSION
-          value: "1.0.0"
-        - name: PORT
-          value: "8000"
-        - name: DEBUG
-          value: "False"
-        - name: SECRET_KEY
-          valueFrom:
-            secretKeyRef:
-              name: django-secrets
-              key: secret-key
-        - name: ALLOWED_HOSTS
-          value: "django-service,localhost"
-        - name: DB_HOST
-          value: "postgres"
-        - name: DB_PORT
-          value: "5432"
-        - name: DB_NAME
-          value: "products_db"
-        - name: DB_USER
-          valueFrom:
-            secretKeyRef:
-              name: postgres-secrets
-              key: username
-        - name: DB_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: postgres-secrets
-              key: password
-        - name: REDIS_HOST
-          value: "redis"
-        - name: REDIS_PORT
-          value: "6379"
-        - name: REDIS_DB
-          value: "0"
-        - name: OTEL_EXPORTER_OTLP_ENDPOINT
-          value: "http://otel-collector:4318"
-        - name: OTEL_SERVICE_NAME
-          value: "django-service"
-        resources:
-          requests:
-            memory: "128Mi"
-            cpu: "100m"
-          limits:
-            memory: "256Mi"
-            cpu: "200m"
-        livenessProbe:
-          httpGet:
-            path: /health/
-            port: 8000
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
-        readinessProbe:
-          httpGet:
-            path: /health/
-            port: 8000
-          initialDelaySeconds: 10
-          periodSeconds: 5
-          timeoutSeconds: 3
-          failureThreshold: 3
+        - name: django
+          image: django-service:v1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: SERVICE_NAME
+              value: "django-service"
+            - name: SERVICE_VERSION
+              value: "1.0.0"
+            - name: PORT
+              value: "8000"
+            - name: DEBUG
+              value: "False"
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: django-secrets
+                  key: secret-key
+            - name: ALLOWED_HOSTS
+              value: "*"
+            - name: DB_HOST
+              value: "postgres"
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              value: "products_db"
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secrets
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secrets
+                  key: password
+            - name: REDIS_HOST
+              value: "redis"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_DB
+              value: "0"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4318"
+            - name: OTEL_SERVICE_NAME
+              value: "django-service"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          livenessProbe:
+            httpGet:
+              path: /health/
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health/
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
