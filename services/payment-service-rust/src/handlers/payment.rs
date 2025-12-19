@@ -17,8 +17,12 @@ pub async fn create_payment(
 ) -> Result<Json<ApiResponse<PaymentResponse>>, StatusCode> {
     tracing::info!("Creating payment for order: {}", request.order_id);
     let payment = payment_service::create_payment(&state.db_pool, request)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, "create_payment service error");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
 
     let response = PaymentResponse {
         id: payment.id,
@@ -42,8 +46,11 @@ pub async fn get_payment(
     Path(id): Path<Uuid>,
 ) -> Result<Json<ApiResponse<PaymentResponse>>, StatusCode> {
     let payment = payment_service::get_payment(&state.db_pool, id)
-        .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
+    .await
+    .map_err(|e| {
+        tracing::warn!(error = %e, "get_payment not found or error");
+        StatusCode::NOT_FOUND
+    })?;
 
     let response = PaymentResponse {
         id: payment.id,
