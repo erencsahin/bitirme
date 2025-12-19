@@ -44,6 +44,7 @@ export class UserService {
       passwordHash,
       firstName: data.firstName,
       lastName: data.lastName,
+      role: data.role ?? UserRole.USER,
     });
 
     logger.info('User created successfully', { userId: user.id, email: user.email });
