@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"time"
+	"strings"
 
 	"order-service/internal/config"
 	"order-service/internal/metrics"
@@ -37,7 +38,12 @@ func New(repo *repository.OrderRepository, cfg *config.Config) *OrderService {
 		userServiceURL:    cfg.UserServiceURL,
 		productServiceURL: cfg.ProductServiceURL,
 		paymentServiceURL: cfg.PaymentServiceURL,
-		client:            &http.Client{Timeout: 10 * time.Second},
+		client: &http.Client{
+  Timeout: 10 * time.Second,
+  CheckRedirect: func(req *http.Request, via []*http.Request) error {
+    return nil // allow redirects
+  },
+},
 		tracer:            otel.Tracer("order-service"),
 	}
 }
@@ -55,7 +61,8 @@ func (s *OrderService) CheckStock(ctx context.Context, productID string, quantit
 	)
 
 	start := time.Now()
-	url := fmt.Sprintf("%s/api/products/%s/check_stock/?quantity=%d", s.productServiceURL, productID, quantity)
+	base := strings.TrimRight(s.productServiceURL, "/")
+	url := fmt.Sprintf("%s/api/products/%s/check_stock/?quantity=%d", base, strings.Trim(productID, "/"), quantity)
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	resp, err := s.client.Do(req)
@@ -70,6 +77,8 @@ func (s *OrderService) CheckStock(ctx context.Context, productID string, quantit
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+  		b, _ := io.ReadAll(resp.Body)
+		log.Printf("stock-service error: status=%d body=%s url=%s", resp.StatusCode, string(b), url)
 		span.SetStatus(codes.Error, "stock check failed (non-200)")
 		return false, errors.New("stock check failed")
 	}
@@ -99,7 +108,8 @@ func (s *OrderService) UpdateStock(ctx context.Context, productID string, quanti
 		attribute.Int("quantity_delta", -quantity),
 	)
 
-	url := fmt.Sprintf("%s/api/products/%s/update_stock/", s.productServiceURL, productID)
+	base := strings.TrimRight(s.productServiceURL, "/")
+	url := fmt.Sprintf("%s/api/products/%s/update_stock/", base, productID)
 	payload := map[string]int{"quantity": -quantity}
 	body, _ := json.Marshal(payload)
 
