@@ -36,6 +36,9 @@ export class AuthService {
       throw new Error('User creation failed');
     }
 
+    // Clear existing sessions just in case
+    await this.sessionRepo.deleteByUserId(fullUser.id);
+
     // Generate tokens
     const accessToken = jwtService.generateAccessToken(
       fullUser.id,
@@ -85,6 +88,8 @@ export class AuthService {
 
     // Update last login
     await this.userRepo.updateLastLogin(user.id);
+    // Clear existing sessions
+    await this.sessionRepo.deleteByUserId(user.id);
 
     // Generate tokens
     const accessToken = jwtService.generateAccessToken(user.id, user.email, user.role);
