@@ -182,7 +182,7 @@ data:
             endpoint: 0.0.0.0:4317
           http:
             endpoint: 0.0.0.0:4318
-
+            
       hostmetrics:
         collection_interval: 10s
         scrapers:
@@ -207,10 +207,15 @@ data:
             action: insert
 
     exporters:
-      elasticsearch:
+      elasticsearch/logs:
         endpoints: ["http://opensearch:9200"]
-        logs_index: "otel-logs-%{yyyy.MM.dd}"
-        metrics_index: "otel-metrics-%{yyyy.MM.dd}"
+        index: "otel-logs-%{yyyy.MM.dd}"
+        tls:
+          insecure: true
+
+      elasticsearch/metrics:
+        endpoints: ["http://opensearch:9200"]
+        index: "otel-metrics-%{yyyy.MM.dd}"
         tls:
           insecure: true
 
@@ -222,12 +227,12 @@ data:
         logs:
           receivers: [otlp]
           processors: [memory_limiter, resource, batch]
-          exporters: [elasticsearch, logging]
+          exporters: [elasticsearch/logs, logging]
 
         metrics:
           receivers: [otlp, hostmetrics]
           processors: [memory_limiter, resource, batch]
-          exporters: [elasticsearch, logging]
+          exporters: [elasticsearch/metrics, logging]
 ---
 # ----------------------------
 # OpenTelemetry Collector Service
