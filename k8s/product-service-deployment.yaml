@@ -36,7 +36,7 @@ spec:
         - name: ghcr-pull
       containers:
         - name: product-service
-          image: ghcr.io/kaftaryagmur/product-service:1.0.0
+          image: ghcr.io/kaftaryagmur/bitirme-django-service:1.0.0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000

@@ -36,7 +36,7 @@ spec:
         - name: ghcr-pull
       containers:
         - name: payment-service
-          image: ghcr.io/kaftaryagmur/payment-service:1.0.0
+          image: ghcr.io/kaftaryagmur/bitirme-payment-service:1.0.0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8085
