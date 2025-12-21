@@ -182,7 +182,7 @@ data:
             endpoint: 0.0.0.0:4317
           http:
             endpoint: 0.0.0.0:4318
-            
+
       hostmetrics:
         collection_interval: 10s
         scrapers:
@@ -207,17 +207,16 @@ data:
             action: insert
 
     exporters:
+      # LOGS -> OpenSearch (kalsın)
       elasticsearch/logs:
         endpoints: ["http://opensearch:9200"]
         index: "otel-logs-%{yyyy.MM.dd}"
         tls:
           insecure: true
 
-      elasticsearch/metrics:
-        endpoints: ["http://opensearch:9200"]
-        index: "otel-metrics-%{yyyy.MM.dd}"
-        tls:
-          insecure: true
+      # METRICS -> Prometheus endpoint (Grafana buradan çeker)
+      prometheus:
+        endpoint: "0.0.0.0:8889"
 
       logging:
         loglevel: info
@@ -232,7 +231,8 @@ data:
         metrics:
           receivers: [otlp, hostmetrics]
           processors: [memory_limiter, resource, batch]
-          exporters: [elasticsearch/metrics, logging]
+          exporters: [prometheus, logging]
+
 ---
 # ----------------------------
 # OpenTelemetry Collector Service
@@ -243,13 +243,16 @@ metadata:
   name: otel-collector
   namespace: microservices
 spec:
+  selector:
+    app: otel-collector
   ports:
     - port: 4317
       name: otlp-grpc
     - port: 4318
       name: otlp-http
-  selector:
-    app: otel-collector
+    - port: 8889
+      name: prom-metrics
+
 ---
 # ----------------------------
 # OpenTelemetry Collector Deployment
@@ -288,6 +291,7 @@ spec:
           ports:
             - containerPort: 4317
             - containerPort: 4318
+            - containerPort: 8889
           volumeMounts:
             - name: config
               mountPath: /etc/otel-collector-config.yaml
