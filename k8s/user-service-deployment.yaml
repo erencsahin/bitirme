@@ -40,8 +40,14 @@ spec:
           command: ["sh", "-lc"]
           args:
             - |
-              echo "Running Prisma migrations..."
-              npx prisma migrate deploy
+              echo "Ensuring Prisma schema..."
+              if [ -d prisma/migrations ] && [ "$(ls -A prisma/migrations 2>/dev/null)" ]; then
+                echo "Migrations found → running migrate deploy"
+                npx prisma migrate deploy
+              else
+                echo "No migrations found → running db push"
+                npx prisma db push
+              fi
           env:
             - name: DATABASE_URL
               valueFrom:

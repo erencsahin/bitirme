@@ -13,6 +13,9 @@ rules:
   - apiGroups: [""]
     resources: ["pods", "nodes", "namespaces"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes/proxy"]
+    verbs: ["get"]
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -43,6 +46,7 @@ data:
     positions:
       filename: /run/promtail/positions.yaml
 
+    # Loki varsa kalsın, yoksa da discovery çalışır
     clients:
       - url: http://loki:3100/loki/api/v1/push
 
@@ -52,19 +56,19 @@ data:
           - role: pod
 
         relabel_configs:
-          # pod name
-          - source_labels: [__meta_kubernetes_pod_name]
-            target_label: pod
-
           # namespace
           - source_labels: [__meta_kubernetes_namespace]
             target_label: namespace
 
-          # container name
+          # pod
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+
+          # container
           - source_labels: [__meta_kubernetes_pod_container_name]
             target_label: container
 
-          # log path
+          # 🔴 KRİTİK SATIR (k3s/containerd)
           - action: replace
             source_labels: [__meta_kubernetes_pod_uid, __meta_kubernetes_pod_container_name]
             separator: /
