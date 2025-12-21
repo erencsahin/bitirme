@@ -32,6 +32,24 @@ spec:
       labels:
         app: user-service
     spec:
+      # PRISMA MIGRATION INIT CONTAINER
+      initContainers:
+        - name: prisma-migrate
+          image: ghcr.io/kaftaryagmur/bitirme-user-service:1.0.0
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-lc"]
+          args:
+            - |
+              echo "Running Prisma migrations..."
+              npx prisma migrate deploy
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: service-secrets
+                  key: DATABASE_URL_USER
+
+      # ASIL UYGULAMA CONTAINER
       containers:
         - name: user-service
           image: ghcr.io/kaftaryagmur/bitirme-user-service:1.0.0
@@ -57,18 +75,22 @@ spec:
                 secretKeyRef:
                   name: db-secrets
                   key: JWT_SECRET
-
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://otel-collector:4318"
             - name: OTEL_SERVICE_NAME
               value: "user-service"
 
           livenessProbe:
-            httpGet: { path: /health, port: 8001 }
+            httpGet:
+              path: /health
+              port: 8001
             initialDelaySeconds: 30
             periodSeconds: 10
+
           readinessProbe:
-            httpGet: { path: /health, port: 8001 }
+            httpGet:
+              path: /health
+              port: 8001
             initialDelaySeconds: 10
             periodSeconds: 5
 
