@@ -6,7 +6,7 @@ metadata:
   labels:
     app: payment-service
 spec:
-  type: ClusterIP
+  type: NodePort
   ports:
     - port: 8085
       targetPort: 8085
