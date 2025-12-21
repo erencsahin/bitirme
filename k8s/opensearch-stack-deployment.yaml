@@ -207,10 +207,10 @@ data:
             action: insert
 
     exporters:
-      # LOGS -> OpenSearch (kalsın)
+      # LOGS -> OpenSearch
       elasticsearch/logs:
         endpoints: ["http://opensearch:9200"]
-        index: "otel-logs-%{yyyy.MM.dd}"
+        logs_index: "otel-logs-%{yyyy.MM.dd}"
         tls:
           insecure: true
 
