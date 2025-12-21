@@ -66,10 +66,12 @@ data:
             source_labels: [__meta_kubernetes_pod_node_name]
             target_label: node
           - action: replace
-            replacement: /var/log/pods/*$1/*.log
-            separator: /
             source_labels: [__meta_kubernetes_pod_uid, __meta_kubernetes_pod_container_name]
+            separator: /
+            regex: (.+)/(.+)
+            replacement: /var/log/pods/*$1*/$2/*.log
             target_label: __path__
+
 
 ---
 apiVersion: apps/v1
