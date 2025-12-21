@@ -20,6 +20,7 @@ data:
         jsonData:
           database: "otel-logs-*"
           flavor: "opensearch"
+          version: "2.11.1"
           timeField: "@timestamp"
 
 ---
