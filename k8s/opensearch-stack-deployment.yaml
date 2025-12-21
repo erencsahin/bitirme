@@ -53,31 +53,23 @@ spec:
               value: "-Xms512m -Xmx512m"
             - name: DISABLE_SECURITY_PLUGIN
               value: "true"
-          # Probes (OpenSearch geç açılabilir; startupProbe bunun için)
           startupProbe:
             httpGet:
               path: /_cluster/health?wait_for_status=yellow&timeout=1s
               port: 9200
-            initialDelaySeconds: 10
+            failureThreshold: 60
             periodSeconds: 10
-            timeoutSeconds: 2
-            failureThreshold: 60 # ~10 dk tolerans
           readinessProbe:
             httpGet:
               path: /_cluster/health?wait_for_status=yellow&timeout=1s
               port: 9200
-            initialDelaySeconds: 10
             periodSeconds: 10
-            timeoutSeconds: 2
-            failureThreshold: 6
           livenessProbe:
             httpGet:
               path: /_cluster/health
               port: 9200
             initialDelaySeconds: 60
             periodSeconds: 20
-            timeoutSeconds: 2
-            failureThreshold: 6
           volumeMounts:
             - name: opensearch-data
               mountPath: /usr/share/opensearch/data
@@ -139,10 +131,11 @@ spec:
           image: curlimages/curl:8.5.0
           command: ["sh", "-c"]
           args:
-            - >
-              until curl -sS http://opensearch:9200/_cluster/health?wait_for_status=yellow&timeout=1s
-              | grep -q '"status"';
-              do echo "waiting for opensearch"; sleep 3; done
+            - |
+              until curl -fsS http://opensearch:9200/_cluster/health?wait_for_status=yellow&timeout=1s >/dev/null; do
+                echo "waiting for opensearch"
+                sleep 3
+              done
       containers:
         - name: dashboards
           image: opensearchproject/opensearch-dashboards:2.11.1
@@ -157,18 +150,13 @@ spec:
             httpGet:
               path: /api/status
               port: 5601
-            initialDelaySeconds: 20
             periodSeconds: 10
-            timeoutSeconds: 2
-            failureThreshold: 6
           livenessProbe:
             httpGet:
               path: /api/status
               port: 5601
             initialDelaySeconds: 60
             periodSeconds: 20
-            timeoutSeconds: 2
-            failureThreshold: 6
           resources:
             requests:
               memory: "512Mi"
@@ -210,10 +198,8 @@ data:
         check_interval: 1s
         limit_mib: 512
         spike_limit_mib: 128
-
       batch:
         timeout: 10s
-
       resource:
         attributes:
           - key: deployment.environment
@@ -257,8 +243,6 @@ spec:
       name: otlp-grpc
     - port: 4318
       name: otlp-http
-    - port: 8888
-      name: metrics
   selector:
     app: otel-collector
 ---
@@ -287,10 +271,11 @@ spec:
           image: curlimages/curl:8.5.0
           command: ["sh", "-c"]
           args:
-            - >
-              until curl -sS http://opensearch:9200/_cluster/health?wait_for_status=yellow&timeout=1s
-              | grep -q '"status"';
-              do echo "waiting for opensearch"; sleep 3; done
+            - |
+              until curl -fsS http://opensearch:9200 >/dev/null; do
+                echo "waiting for opensearch"
+                sleep 3
+              done
       containers:
         - name: otel-collector
           image: otel/opentelemetry-collector-contrib:0.91.0
@@ -298,7 +283,6 @@ spec:
           ports:
             - containerPort: 4317
             - containerPort: 4318
-            - containerPort: 8888
           volumeMounts:
             - name: config
               mountPath: /etc/otel-collector-config.yaml
