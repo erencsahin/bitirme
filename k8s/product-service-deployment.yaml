@@ -37,7 +37,6 @@ spec:
       containers:
         - name: product-service
           image: ghcr.io/kaftaryagmur/product-service:1.0.0
-          image: django-service-django:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
