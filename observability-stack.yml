@@ -47,22 +47,6 @@ services:
       - microservices-network
     restart: unless-stopped
 
-  data-prepper:
-    image: opensearchproject/data-prepper:2.13.0
-    container_name: data-prepper
-    volumes:
-      - ./data-prepper-config.yaml:/usr/share/data-prepper/pipelines/pipelines.yaml
-      - ./data-prepper-data-prepper-config.yaml:/usr/share/data-prepper/config/data-prepper-config.yaml
-    ports:
-      - "21890:21890"
-      - "21891:21891"
-      - "4900:4900"
-    depends_on:
-      - opensearch
-    networks:
-      - microservices-network
-    restart: unless-stopped
-
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.91.0
     container_name: otel-collector
@@ -78,7 +62,7 @@ services:
       - "8889:8889"
       - "13133:13133"
     depends_on:
-      - data-prepper
+      - opensearch
     networks:
       - microservices-network
     restart: unless-stopped

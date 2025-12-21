@@ -37,65 +37,65 @@ spec:
       nodeSelector:
         node-type: pi5
       containers:
-      - name: opensearch
-        image: opensearchproject/opensearch:2.11.1
-        ports:
-        - containerPort: 9200
-        - containerPort: 9600
-        env:
-        - name: cluster.name
-          value: "opensearch-cluster"
-        - name: node.name
-          value: "opensearch-node1"
-        - name: discovery.type
-          value: "single-node"
-        - name: OPENSEARCH_JAVA_OPTS
-          value: "-Xms512m -Xmx512m"
-        - name: DISABLE_SECURITY_PLUGIN
-          value: "true"
-        # Probes (OpenSearch geç açılabilir; startupProbe bunun için)
-        startupProbe:
-          httpGet:
-            path: /_cluster/health?wait_for_status=yellow&timeout=1s
-            port: 9200
-          initialDelaySeconds: 10
-          periodSeconds: 10
-          timeoutSeconds: 2
-          failureThreshold: 60   # ~10 dk tolerans
-        readinessProbe:
-          httpGet:
-            path: /_cluster/health?wait_for_status=yellow&timeout=1s
-            port: 9200
-          initialDelaySeconds: 10
-          periodSeconds: 10
-          timeoutSeconds: 2
-          failureThreshold: 6
-        livenessProbe:
-          httpGet:
-            path: /_cluster/health
-            port: 9200
-          initialDelaySeconds: 60
-          periodSeconds: 20
-          timeoutSeconds: 2
-          failureThreshold: 6
-        volumeMounts:
-        - name: opensearch-data
-          mountPath: /usr/share/opensearch/data
+        - name: opensearch
+          image: opensearchproject/opensearch:2.11.1
+          ports:
+            - containerPort: 9200
+            - containerPort: 9600
+          env:
+            - name: cluster.name
+              value: "opensearch-cluster"
+            - name: node.name
+              value: "opensearch-node1"
+            - name: discovery.type
+              value: "single-node"
+            - name: OPENSEARCH_JAVA_OPTS
+              value: "-Xms512m -Xmx512m"
+            - name: DISABLE_SECURITY_PLUGIN
+              value: "true"
+          # Probes (OpenSearch geç açılabilir; startupProbe bunun için)
+          startupProbe:
+            httpGet:
+              path: /_cluster/health?wait_for_status=yellow&timeout=1s
+              port: 9200
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 60 # ~10 dk tolerans
+          readinessProbe:
+            httpGet:
+              path: /_cluster/health?wait_for_status=yellow&timeout=1s
+              port: 9200
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /_cluster/health
+              port: 9200
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 2
+            failureThreshold: 6
+          volumeMounts:
+            - name: opensearch-data
+              mountPath: /usr/share/opensearch/data
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+  volumeClaimTemplates:
+    - metadata:
+        name: opensearch-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
         resources:
           requests:
-            memory: "1Gi"
-            cpu: "500m"
-          limits:
-            memory: "2Gi"
-            cpu: "1000m"
-  volumeClaimTemplates:
-  - metadata:
-      name: opensearch-data
-    spec:
-      accessModes: ["ReadWriteOnce"]
-      resources:
-        requests:
-          storage: 10Gi
+            storage: 10Gi
 ---
 # ----------------------------
 # OpenSearch Dashboards Service
@@ -135,186 +135,47 @@ spec:
       nodeSelector:
         node-type: pi5
       initContainers:
-      - name: wait-for-opensearch
-        image: curlimages/curl:8.5.0
-        command: ["sh", "-c"]
-        args:
-          - >
-            until curl -sS http://opensearch:9200/_cluster/health?wait_for_status=yellow&timeout=1s
-            | grep -q '"status"';
-            do echo "waiting for opensearch"; sleep 3; done
+        - name: wait-for-opensearch
+          image: curlimages/curl:8.5.0
+          command: ["sh", "-c"]
+          args:
+            - >
+              until curl -sS http://opensearch:9200/_cluster/health?wait_for_status=yellow&timeout=1s
+              | grep -q '"status"';
+              do echo "waiting for opensearch"; sleep 3; done
       containers:
-      - name: dashboards
-        image: opensearchproject/opensearch-dashboards:2.11.1
-        ports:
-        - containerPort: 5601
-        env:
-        - name: OPENSEARCH_HOSTS
-          value: '["http://opensearch:9200"]'
-        - name: DISABLE_SECURITY_DASHBOARDS_PLUGIN
-          value: "true"
-        readinessProbe:
-          httpGet:
-            path: /api/status
-            port: 5601
-          initialDelaySeconds: 20
-          periodSeconds: 10
-          timeoutSeconds: 2
-          failureThreshold: 6
-        livenessProbe:
-          httpGet:
-            path: /api/status
-            port: 5601
-          initialDelaySeconds: 60
-          periodSeconds: 20
-          timeoutSeconds: 2
-          failureThreshold: 6
-        resources:
-          requests:
-            memory: "512Mi"
-            cpu: "250m"
-          limits:
-            memory: "1Gi"
-            cpu: "500m"
----
-# ----------------------------
-# Data Prepper ConfigMap
-# ----------------------------
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: data-prepper-config
-  namespace: microservices
-data:
-  pipelines.yaml: |
-    entry-pipeline:
-      delay: "100"
-      source:
-        otel_trace_source:
-          ssl: false
-          port: 21890
-      processor:
-        - otel_trace_raw:
-      sink:
-        - pipeline:
-            name: "raw-pipeline"
-        - pipeline:
-            name: "service-map-pipeline"
-
-    raw-pipeline:
-      source:
-        pipeline:
-          name: "entry-pipeline"
-      processor:
-        - otel_traces:
-      sink:
-        - opensearch:
-            hosts: ["http://opensearch:9200"]
-            index_type: trace-analytics-raw
-            bulk_size: 4
-
-    service-map-pipeline:
-      delay: "100"
-      source:
-        pipeline:
-          name: "entry-pipeline"
-      processor:
-        - service_map_stateful:
-      sink:
-        - opensearch:
-            hosts: ["http://opensearch:9200"]
-            index_type: trace-analytics-service-map
-            bulk_size: 4
-
-  data-prepper-config.yaml: |
-    ssl: false
----
-# ----------------------------
-# Data Prepper Service
-# ----------------------------
-apiVersion: v1
-kind: Service
-metadata:
-  name: data-prepper
-  namespace: microservices
-spec:
-  ports:
-    - port: 21890
-      name: otlp-grpc
-    - port: 4900
-      name: health
-  selector:
-    app: data-prepper
----
-# ----------------------------
-# Data Prepper Deployment
-# ----------------------------
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: data-prepper
-  namespace: microservices
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: data-prepper
-  template:
-    metadata:
-      labels:
-        app: data-prepper
-    spec:
-      nodeSelector:
-        node-type: pi5
-      initContainers:
-      - name: wait-for-opensearch
-        image: curlimages/curl:8.5.0
-        command: ["sh", "-c"]
-        args:
-          - >
-            until curl -sS http://opensearch:9200/_cluster/health?wait_for_status=yellow&timeout=1s
-            | grep -q '"status"';
-            do echo "waiting for opensearch"; sleep 3; done
-      containers:
-      - name: data-prepper
-        image: opensearchproject/data-prepper:2.6.1
-        ports:
-        - containerPort: 21890
-        - containerPort: 4900
-        volumeMounts:
-        - name: config
-          mountPath: /usr/share/data-prepper/pipelines/pipelines.yaml
-          subPath: pipelines.yaml
-        - name: config
-          mountPath: /usr/share/data-prepper/config/data-prepper-config.yaml
-          subPath: data-prepper-config.yaml
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 4900
-          initialDelaySeconds: 15
-          periodSeconds: 10
-          timeoutSeconds: 2
-          failureThreshold: 6
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 4900
-          initialDelaySeconds: 60
-          periodSeconds: 20
-          timeoutSeconds: 2
-          failureThreshold: 6
-        resources:
-          requests:
-            memory: "512Mi"
-            cpu: "250m"
-          limits:
-            memory: "1Gi"
-            cpu: "500m"
-      volumes:
-      - name: config
-        configMap:
-          name: data-prepper-config
+        - name: dashboards
+          image: opensearchproject/opensearch-dashboards:2.11.1
+          ports:
+            - containerPort: 5601
+          env:
+            - name: OPENSEARCH_HOSTS
+              value: '["http://opensearch:9200"]'
+            - name: DISABLE_SECURITY_DASHBOARDS_PLUGIN
+              value: "true"
+          readinessProbe:
+            httpGet:
+              path: /api/status
+              port: 5601
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /api/status
+              port: 5601
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 2
+            failureThreshold: 6
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
 ---
 # ----------------------------
 # OpenTelemetry Collector ConfigMap
@@ -334,14 +195,24 @@ data:
           http:
             endpoint: 0.0.0.0:4318
 
-    processors:
-      batch:
-        timeout: 10s
-        send_batch_size: 1024
+      hostmetrics:
+        collection_interval: 10s
+        scrapers:
+          cpu: {}
+          memory: {}
+          disk: {}
+          filesystem: {}
+          network: {}
+          load: {}
 
+    processors:
       memory_limiter:
         check_interval: 1s
-        limit_mib: 1024
+        limit_mib: 512
+        spike_limit_mib: 128
+
+      batch:
+        timeout: 10s
 
       resource:
         attributes:
@@ -350,8 +221,10 @@ data:
             action: insert
 
     exporters:
-      otlp/data-prepper:
-        endpoint: data-prepper:21890
+      elasticsearch:
+        endpoints: ["http://opensearch:9200"]
+        logs_index: "otel-logs-%{yyyy.MM.dd}"
+        metrics_index: "otel-metrics-%{yyyy.MM.dd}"
         tls:
           insecure: true
 
@@ -360,10 +233,15 @@ data:
 
     service:
       pipelines:
-        traces:
+        logs:
           receivers: [otlp]
           processors: [memory_limiter, resource, batch]
-          exporters: [otlp/data-prepper, logging]
+          exporters: [elasticsearch, logging]
+
+        metrics:
+          receivers: [otlp, hostmetrics]
+          processors: [memory_limiter, resource, batch]
+          exporters: [elasticsearch, logging]
 ---
 # ----------------------------
 # OpenTelemetry Collector Service
@@ -405,33 +283,34 @@ spec:
       nodeSelector:
         node-type: pi5
       initContainers:
-      - name: wait-for-data-prepper
-        image: curlimages/curl:8.5.0
-        command: ["sh", "-c"]
-        args:
-          - >
-            until curl -sS http://data-prepper:4900/health;
-            do echo "waiting for data-prepper"; sleep 3; done
+        - name: wait-for-opensearch
+          image: curlimages/curl:8.5.0
+          command: ["sh", "-c"]
+          args:
+            - >
+              until curl -sS http://opensearch:9200/_cluster/health?wait_for_status=yellow&timeout=1s
+              | grep -q '"status"';
+              do echo "waiting for opensearch"; sleep 3; done
       containers:
-      - name: otel-collector
-        image: otel/opentelemetry-collector-contrib:0.91.0
-        args: ["--config=/etc/otel-collector-config.yaml"]
-        ports:
-        - containerPort: 4317
-        - containerPort: 4318
-        - containerPort: 8888
-        volumeMounts:
-        - name: config
-          mountPath: /etc/otel-collector-config.yaml
-          subPath: otel-collector-config.yaml
-        resources:
-          requests:
-            memory: "256Mi"
-            cpu: "200m"
-          limits:
-            memory: "512Mi"
-            cpu: "500m"
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.91.0
+          args: ["--config=/etc/otel-collector-config.yaml"]
+          ports:
+            - containerPort: 4317
+            - containerPort: 4318
+            - containerPort: 8888
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otel-collector-config.yaml
+              subPath: otel-collector-config.yaml
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
       volumes:
-      - name: config
-        configMap:
-          name: otel-collector-config
+        - name: config
+          configMap:
+            name: otel-collector-config
