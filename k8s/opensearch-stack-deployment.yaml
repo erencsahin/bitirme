@@ -219,15 +219,17 @@ data:
         endpoint: "0.0.0.0:8889"
 
       logging:
-        loglevel: info
+       verbosity: detailed
 
     service:
+      telemetry:
+        logs:
+          level: "debug"
       pipelines:
         logs:
           receivers: [otlp]
           processors: [memory_limiter, resource, batch]
           exporters: [elasticsearch/logs, logging]
-
         metrics:
           receivers: [otlp, hostmetrics]
           processors: [memory_limiter, resource, batch]
