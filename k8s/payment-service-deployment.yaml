@@ -6,11 +6,10 @@ metadata:
   labels:
     app: payment-service
 spec:
-  type: NodePort
+  type: ClusterIP
   ports:
     - port: 8085
       targetPort: 8085
-      nodePort: 30085
       protocol: TCP
       name: http
   selector:
@@ -33,54 +32,45 @@ spec:
       labels:
         app: payment-service
     spec:
-      # nodeSelector kaldırıldı - tüm node'larda çalışabilir
+      imagePullSecrets:
+        - name: ghcr-pull
       containers:
-      - name: payment-service
-        image: payment-service:latest
-        imagePullPolicy: IfNotPresent
-        ports:
-        - containerPort: 8085
-        env:
-        - name: SERVER_PORT
-          value: "8085"
-        - name: DATABASE_URL
-          valueFrom:
-            secretKeyRef:
-              name: service-secrets
-              key: DATABASE_URL_PAYMENT
-        - name: REDIS_URL
-          value: "redis://payment-redis:6379"
-        - name: USER_SERVICE_URL
-          value: "http://user-service:8001"
-        - name: OTEL_ENDPOINT
-          value: "otel-collector:4317"
-        - name: OTEL_SERVICE_NAME
-          value: "payment-service"
-        - name: OTEL_RESOURCE_ATTRIBUTES
-          value: "service.name=payment-service,service.version=1.0.0,deployment.environment=production"
-        - name: RUST_LOG
-          value: "info"
-        - name: ENVIRONMENT
-          value: "production"
-        livenessProbe:
-          httpGet:
-            path: /api/health
-            port: 8085
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
-        readinessProbe:
-          httpGet:
-            path: /api/health
-            port: 8085
-          initialDelaySeconds: 15
-          periodSeconds: 5
-          timeoutSeconds: 3
-        resources:
-          requests:
-            memory: "256Mi"
-            cpu: "250m"
-          limits:
-            memory: "512Mi"
-            cpu: "500m"
+        - name: payment-service
+          image: ghcr.io/kaftaryagmur/payment-service:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8085
+          env:
+            - name: SERVER_PORT
+              value: "8085"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: service-secrets
+                  key: DATABASE_URL_PAYMENT
+            - name: REDIS_URL
+              value: "redis://payment-redis:6379"
+            - name: USER_SERVICE_URL
+              value: "http://user-service:8001"
+
+            - name: OTEL_ENDPOINT
+              value: "http://otel-collector:4317"
+            - name: OTEL_SERVICE_NAME
+              value: "payment-service"
+
+          livenessProbe:
+            httpGet: { path: /api/health, port: 8085 }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /api/health, port: 8085 }
+            initialDelaySeconds: 15
+            periodSeconds: 5
+
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
