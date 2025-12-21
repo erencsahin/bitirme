@@ -32,8 +32,6 @@ spec:
       labels:
         app: order-service
     spec:
-      imagePullSecrets:
-        - name: ghcr-pull
       containers:
         - name: order-service
           image: ghcr.io/kaftaryagmur/bitirme-order-service:1.0.0

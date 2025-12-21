@@ -32,8 +32,6 @@ spec:
       labels:
         app: product-service
     spec:
-      imagePullSecrets:
-        - name: ghcr-pull
       containers:
         - name: product-service
           image: ghcr.io/kaftaryagmur/bitirme-django-service:1.0.0

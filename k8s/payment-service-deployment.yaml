@@ -32,8 +32,6 @@ spec:
       labels:
         app: payment-service
     spec:
-      imagePullSecrets:
-        - name: ghcr-pull
       containers:
         - name: payment-service
           image: ghcr.io/kaftaryagmur/bitirme-payment-service:1.0.0

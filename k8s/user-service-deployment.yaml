@@ -32,8 +32,6 @@ spec:
       labels:
         app: user-service
     spec:
-      imagePullSecrets:
-        - name: ghcr-pull
       containers:
         - name: user-service
           image: ghcr.io/kaftaryagmur/bitirme-user-service:1.0.0
